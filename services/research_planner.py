@@ -2,8 +2,8 @@
 services/research_planner.py
 Research planning for multi-query evidence gathering.
 
-Classifies question complexity and generates diverse, complementary
-search queries to improve evidence coverage and quality.
+Classifies question complexity and generates domain-aware,
+complementary search queries to improve evidence coverage.
 """
 
 from __future__ import annotations
@@ -60,10 +60,10 @@ def classify_complexity(question: str, provider: LLMProvider) -> str:
         result = response.text.strip().upper()
 
         if "SIMPLE" in result:
-            log.info(f"[PLAN] Complexity: simple — direct search")
+            log.info("[PLAN] Complexity: simple — direct search")
             return "simple"
         else:
-            log.info(f"[PLAN] Complexity: broad — multi-query planning")
+            log.info("[PLAN] Complexity: broad — multi-query planning")
             return "broad"
 
     except Exception as e:
@@ -75,30 +75,35 @@ def classify_complexity(question: str, provider: LLMProvider) -> str:
 # Research planning
 # ---------------------------------------------------------------------------
 
-_PLAN_PROMPT = """You are a research planner. Given a user's research question, generate 3-5 complementary web search queries that together will provide comprehensive evidence.
+_PLAN_PROMPT = """Given the research question below, generate 3-5 web search queries that will gather the most useful and diverse evidence.
 
-Each query should target a DIFFERENT facet of the topic. Do NOT simply rephrase the same question.
+CRITICAL RULES:
+- Each query must target a SPECIFIC, DIFFERENT aspect of the topic.
+- Tailor queries to the DOMAIN of the subject. Think about what kind of entity this is (company, technology, person, concept, event, etc.) and what information would be most valuable.
+- Focus on queries likely to return REAL, SUBSTANTIVE results. Avoid speculative queries about topics that may not exist (e.g., don't search for "funding" unless the subject is likely to have received funding).
+- DO NOT use generic templates. Every query should be crafted specifically for THIS subject.
 
-Return a JSON array where each element has:
+BAD example (generic template applied blindly):
+  "Qbit Force competitors", "Qbit Force reviews", "Qbit Force funding"
+
+GOOD example (domain-aware, specific):
+  "Qbit Force official website quantum computing"
+  "Qbit Force founders team background"
+  "Qbit Force quantum hardware technology products"
+  "Qbit Force latest news announcements"
+
+Return a JSON array. Each element must have:
 - "query": the search string
-- "purpose": a short description of what this search aims to find
+- "purpose": one sentence explaining what this search aims to discover
 
-Example for "Tell me about Qbit Force":
-[
-  {{"query": "Qbit Force company overview", "purpose": "Find official company description and mission"}},
-  {{"query": "Qbit Force products services", "purpose": "Identify what the company offers"}},
-  {{"query": "Qbit Force founders team LinkedIn", "purpose": "Find leadership and team information"}},
-  {{"query": "Qbit Force latest news funding", "purpose": "Discover recent developments and funding"}}
-]
-
-Return ONLY the JSON array, no other text.
+Return ONLY the JSON array.
 
 Question: {question}"""
 
 
 def plan_research(question: str, provider: LLMProvider) -> list[PlannedQuery]:
     """
-    Generate 3-5 diverse, complementary search queries for a broad question.
+    Generate 3-5 diverse, domain-aware search queries for a broad question.
 
     Each query targets a different facet of the topic to maximize evidence
     coverage. Falls back to a single direct query on any error.
@@ -114,7 +119,7 @@ def plan_research(question: str, provider: LLMProvider) -> list[PlannedQuery]:
         response = provider.generate(
             prompt=_PLAN_PROMPT.format(question=question),
             system_prompt="You are a research planner. Output valid JSON only.",
-            max_tokens=300,
+            max_tokens=400,
             temperature=0.3,
         )
 
@@ -139,7 +144,7 @@ def plan_research(question: str, provider: LLMProvider) -> list[PlannedQuery]:
 
         # Log the plan
         for i, pq in enumerate(queries, 1):
-            log.info(f"[PLAN] Query {i}: \"{pq.query}\" — {pq.purpose}")
+            log.info(f'[PLAN] Query {i}: "{pq.query}" — {pq.purpose}')
 
         return queries
 

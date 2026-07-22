@@ -179,16 +179,17 @@ class Pipeline:
 
         start = time.time()
         k = top_k or settings.TOP_K
+        research_plan = None  # Will be set if planner runs
 
         if mode == "local":
             scored_chunks = self._retriever.retrieve(question, k)
 
         elif mode == "web":
-            scored_chunks = self._web_retrieve(question, k)
+            research_plan, scored_chunks = self._web_retrieve(question, k)
 
         elif mode == "hybrid":
             local_chunks = self._retriever.retrieve(question, k)
-            web_chunks   = self._web_retrieve(question, k, citation_offset=len(local_chunks))
+            research_plan, web_chunks = self._web_retrieve(question, k, citation_offset=len(local_chunks))
             scored_chunks = self._merge(local_chunks, web_chunks, k)
 
         else:  # auto
@@ -199,7 +200,7 @@ class Pipeline:
             else:
                 if settings.TAVILY_API_KEY:
                     log.info("[AUTO] Insufficient local evidence — falling back to hybrid")
-                    web_chunks   = self._web_retrieve(question, k, citation_offset=len(local_chunks))
+                    research_plan, web_chunks = self._web_retrieve(question, k, citation_offset=len(local_chunks))
                     scored_chunks = self._merge(local_chunks, web_chunks, k)
                 else:
                     log.warning(
@@ -213,6 +214,13 @@ class Pipeline:
         total_ms = round((time.time() - start) * 1000, 1)
         answer.metrics["total_latency_ms"] = total_ms
         answer.metrics["mode"] = mode
+
+        # Attach research plan for display
+        if research_plan:
+            answer.metrics["research_plan"] = [
+                {"query": pq.query, "purpose": pq.purpose}
+                for pq in research_plan
+            ]
 
         return answer
 
@@ -242,24 +250,29 @@ class Pipeline:
         question: str,
         top_k: int,
         citation_offset: int = 0,
-    ) -> list[ScoredChunk]:
-        """Run web search — single query for simple questions, multi-query for broad."""
+    ) -> tuple[list | None, list[ScoredChunk]]:
+        """Run web search — single query for simple, multi-query for broad.
+
+        Returns (research_plan, scored_chunks) where research_plan is a list
+        of PlannedQuery objects (or None for simple queries).
+        """
         from services.research_planner import classify_complexity, plan_research
         from services.tavily_search import tavily_search, tavily_search_multi
 
         complexity = classify_complexity(question, self.generator.provider)
 
         if complexity == "simple":
-            return tavily_search(
+            return None, tavily_search(
                 query=question,
                 citation_offset=citation_offset,
             )
         else:
             queries = plan_research(question, self.generator.provider)
-            return tavily_search_multi(
+            chunks = tavily_search_multi(
                 planned_queries=queries,
                 citation_offset=citation_offset,
             )
+            return queries, chunks
 
     def _merge(
         self,

@@ -68,9 +68,18 @@ def cmd_ask(args):
 
     answer = pipeline.ask(args.question, top_k=args.top_k, mode=mode)
 
+    # Display research plan if present
+    plan = answer.metrics.get("research_plan")
+    if plan:
+        print("── Research Plan ──")
+        for i, step in enumerate(plan, 1):
+            print(f"  {i}. {step['query']}")
+            print(f"     → {step['purpose']}")
+        print()
+
     # Print the answer
-    print("-- Answer --")
-    print(textwrap.fill(answer.answer, width=88))
+    print("── Answer ──")
+    print(answer.answer)
 
     # Print citations — grouped by source type for clarity
     if answer.citations:
@@ -78,19 +87,19 @@ def cmd_ask(args):
         web_citations = [c for c in answer.citations if c.source_type == "web"]
 
         if doc_citations:
-            print(f"\n-- Document Citations ({len(doc_citations)}) --")
+            print(f"\n── Document Citations ({len(doc_citations)}) ──")
             for c in doc_citations:
                 print(f"  [{c.citation_id}] {c.source}")
                 print(f"      \"{c.chunk_preview}\"")
 
         if web_citations:
-            print(f"\n-- Web Citations ({len(web_citations)}) --")
+            print(f"\n── Web Citations ({len(web_citations)}) ──")
             for c in web_citations:
                 print(f"  [{c.citation_id}] {c.source}")
                 print(f"      \"{c.chunk_preview}\"")
 
     # Print metrics
-    print(f"\n-- Metrics --")
+    print(f"\n── Metrics ──")
     print(f"  Mode:            {answer.metrics.get('mode', mode)}")
     print(f"  Confidence:      {answer.confidence}")
     print(f"  Chunks retrieved: {answer.chunks_retrieved}")
