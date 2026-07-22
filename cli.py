@@ -55,29 +55,43 @@ def cmd_ask(args):
     from services.pipeline import Pipeline
 
     pipeline = Pipeline()
+    mode = args.mode
 
-    if pipeline.status()["total_chunks"] == 0:
+    # Only enforce the no-documents guard for local mode.
+    # web mode doesn't need local docs; hybrid/auto degrade gracefully.
+    if mode == "local" and pipeline.status()["total_chunks"] == 0:
         print("[WARN]  No documents indexed.")
         print("   Run: python cli.py ingest <path>")
         sys.exit(1)
 
-    print(f"\n[?] Researching: \"{args.question}\"\n")
+    print(f"\n[?] Researching ({mode} mode): \"{args.question}\"\n")
 
-    answer = pipeline.ask(args.question, top_k=args.top_k)
+    answer = pipeline.ask(args.question, top_k=args.top_k, mode=mode)
 
     # Print the answer
     print("-- Answer --")
     print(textwrap.fill(answer.answer, width=88))
 
-    # Print citations
+    # Print citations — grouped by source type for clarity
     if answer.citations:
-        print(f"\n-- Citations ({len(answer.citations)}) --")
-        for c in answer.citations:
-            print(f"  [{c.citation_id}] {c.source}")
-            print(f"      \"{c.chunk_preview}\"")
+        doc_citations = [c for c in answer.citations if c.source_type == "doc"]
+        web_citations = [c for c in answer.citations if c.source_type == "web"]
+
+        if doc_citations:
+            print(f"\n-- Document Citations ({len(doc_citations)}) --")
+            for c in doc_citations:
+                print(f"  [{c.citation_id}] {c.source}")
+                print(f"      \"{c.chunk_preview}\"")
+
+        if web_citations:
+            print(f"\n-- Web Citations ({len(web_citations)}) --")
+            for c in web_citations:
+                print(f"  [{c.citation_id}] {c.source}")
+                print(f"      \"{c.chunk_preview}\"")
 
     # Print metrics
     print(f"\n-- Metrics --")
+    print(f"  Mode:            {answer.metrics.get('mode', mode)}")
     print(f"  Confidence:      {answer.confidence}")
     print(f"  Chunks retrieved: {answer.chunks_retrieved}")
     print(f"  Chunks cited:    {answer.chunks_cited}")
@@ -94,7 +108,12 @@ def cmd_ask(args):
             "question": answer.question,
             "answer": answer.answer,
             "citations": [
-                {"id": c.citation_id, "source": c.source, "preview": c.chunk_preview}
+                {
+                    "id": c.citation_id,
+                    "source": c.source,
+                    "source_type": c.source_type,
+                    "preview": c.chunk_preview,
+                }
                 for c in answer.citations
             ],
             "confidence": answer.confidence,
@@ -153,6 +172,12 @@ def main():
     ask_parser = subparsers.add_parser("ask", help="Ask a research question")
     ask_parser.add_argument("question", help="The research question")
     ask_parser.add_argument("--top-k", type=int, default=None, help="Number of chunks to retrieve")
+    ask_parser.add_argument(
+        "--mode",
+        choices=["local", "web", "hybrid", "auto"],
+        default="local",
+        help="Retrieval mode (default: local)",
+    )
     ask_parser.add_argument("--json", action="store_true", help="Also output raw JSON")
     ask_parser.set_defaults(func=cmd_ask)
 

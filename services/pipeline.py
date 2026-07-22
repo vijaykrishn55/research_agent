@@ -5,6 +5,12 @@ RAG pipeline orchestrator.
 Single entry point that coordinates:
   1. Document ingestion (load -> chunk -> embed -> index)
   2. Research queries (retrieve -> generate)
+
+Supports four retrieval modes:
+  local   — FAISS index only (default, unchanged behaviour)
+  web     — Tavily web search only
+  hybrid  — local + web, merged, ranked, deduplicated
+  auto    — local first; falls back to hybrid if evidence is insufficient
 """
 
 import os
@@ -15,12 +21,15 @@ from data.chunker import chunk_document
 from data.index_store import IndexStore
 from providers.embedder import Embedder
 from providers.base import LLMProvider, create_provider
-from services.retriever import Retriever
+from services.retriever import Retriever, ScoredChunk
 from services.generator import Generator, ResearchAnswer
 from config import settings
 from utils.log import get_logger
 
 log = get_logger(__name__)
+
+# Valid retrieval modes
+VALID_MODES = {"local", "web", "hybrid", "auto"}
 
 
 class Pipeline:
@@ -94,8 +103,6 @@ class Pipeline:
         results = []
 
         for doc in documents:
-            # Build a temporary path for load_file compatibility
-            # Since we already have LoadedDocument, chunk directly
             if self._index_store.is_file_ingested(doc.source):
                 log.info(f"[SKIP]  Skipping {doc.source} (already ingested)")
                 results.append({"file": doc.source, "status": "skipped", "reason": "already ingested"})
@@ -120,7 +127,6 @@ class Pipeline:
                 "elapsed_seconds": elapsed,
             })
 
-        # Save once after all files
         self._index_store.save()
 
         total_chunks = sum(r.get("chunks", 0) for r in results)
@@ -152,21 +158,61 @@ class Pipeline:
 
     # -- Research --------------------------------------------------------------
 
-    def ask(self, question: str, top_k: int | None = None) -> ResearchAnswer:
+    def ask(
+        self,
+        question: str,
+        top_k: int | None = None,
+        mode: str = "local",
+    ) -> ResearchAnswer:
         """
-        Answer a research question using RAG.
+        Answer a research question.
 
-        Steps:
-        1. Retrieve the most relevant chunks
-        2. Generate a grounded answer with citations
+        mode="local"   — FAISS retrieval only (default, backward-compatible)
+        mode="web"     — Tavily web search only
+        mode="hybrid"  — local + web, merged, ranked, deduplicated
+        mode="auto"    — local first; upgrades to hybrid if evidence is thin
         """
+        if mode not in VALID_MODES:
+            raise ValueError(
+                f"Invalid mode '{mode}'. Choose from: {', '.join(sorted(VALID_MODES))}"
+            )
+
         start = time.time()
+        k = top_k or settings.TOP_K
 
-        scored_chunks = self._retriever.retrieve(question, top_k)
+        if mode == "local":
+            scored_chunks = self._retriever.retrieve(question, k)
+
+        elif mode == "web":
+            scored_chunks = self._web_retrieve(question, k)
+
+        elif mode == "hybrid":
+            local_chunks = self._retriever.retrieve(question, k)
+            web_chunks   = self._web_retrieve(question, k, citation_offset=len(local_chunks))
+            scored_chunks = self._merge(local_chunks, web_chunks, k)
+
+        else:  # auto
+            local_chunks = self._retriever.retrieve(question, k)
+            if self._is_sufficient(local_chunks):
+                log.info("[AUTO] Local evidence sufficient — skipping web search")
+                scored_chunks = local_chunks
+            else:
+                if settings.TAVILY_API_KEY:
+                    log.info("[AUTO] Insufficient local evidence — falling back to hybrid")
+                    web_chunks   = self._web_retrieve(question, k, citation_offset=len(local_chunks))
+                    scored_chunks = self._merge(local_chunks, web_chunks, k)
+                else:
+                    log.warning(
+                        "[AUTO] Evidence thin but TAVILY_API_KEY not set — "
+                        "answering with local evidence only"
+                    )
+                    scored_chunks = local_chunks
+
         answer = self.generator.generate(question, scored_chunks)
 
         total_ms = round((time.time() - start) * 1000, 1)
         answer.metrics["total_latency_ms"] = total_ms
+        answer.metrics["mode"] = mode
 
         return answer
 
@@ -186,4 +232,96 @@ class Pipeline:
             "llm_provider": settings.LLM_PROVIDER,
             "llm_model": getattr(self._provider, "model", settings.GROQ_MODEL),
             "index_dir": self._index_store.index_dir,
+            "tavily_enabled": bool(settings.TAVILY_API_KEY),
         }
+
+    # -- Private helpers -------------------------------------------------------
+
+    def _web_retrieve(
+        self,
+        question: str,
+        top_k: int,
+        citation_offset: int = 0,
+    ) -> list[ScoredChunk]:
+        """Run Tavily search, optionally with query optimisation."""
+        from services.tavily_search import tavily_search, optimize_query
+
+        query = question
+        if settings.TAVILY_OPTIMIZE_QUERY:
+            query = optimize_query(question, self.generator.provider)
+
+        return tavily_search(
+            query=query,
+            max_results=top_k,
+            citation_offset=citation_offset,
+        )
+
+    def _merge(
+        self,
+        local_chunks: list[ScoredChunk],
+        web_chunks: list[ScoredChunk],
+        top_k: int,
+    ) -> list[ScoredChunk]:
+        """
+        Merge local and web chunks, sort by score, deduplicate, slice to top_k.
+        Re-assigns citation_ids sequentially after sorting.
+        """
+        combined = local_chunks + web_chunks
+
+        # Sort by relevance score descending
+        combined.sort(key=lambda sc: sc.score, reverse=True)
+
+        # Deduplicate by Jaccard token overlap
+        combined = _dedup(combined, settings.DEDUP_SIMILARITY_THRESHOLD)
+
+        # Take top-k
+        combined = combined[:top_k]
+
+        # Re-assign citation IDs so they are 1..N after ranking
+        for idx, sc in enumerate(combined):
+            sc.citation_id = idx + 1
+
+        log.info(
+            f"[MERGE] {len(local_chunks)} local + {len(web_chunks)} web "
+            f"→ {len(combined)} after dedup/rank"
+        )
+        return combined
+
+    def _is_sufficient(self, chunks: list[ScoredChunk]) -> bool:
+        """
+        Heuristic: local evidence is 'sufficient' when we have at least
+        AUTO_MIN_CHUNKS results whose top score meets AUTO_MIN_SCORE.
+        """
+        if len(chunks) < settings.AUTO_MIN_CHUNKS:
+            return False
+        return chunks[0].score >= settings.AUTO_MIN_SCORE
+
+
+# -- Module-level helpers ------------------------------------------------------
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    """Jaccard similarity between two token sets."""
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _dedup(chunks: list[ScoredChunk], threshold: float) -> list[ScoredChunk]:
+    """
+    Remove chunks whose content overlaps heavily with a higher-ranked chunk.
+
+    Operates on a pre-sorted list (highest score first). Chunks with
+    Jaccard similarity > threshold against any already-kept chunk are dropped.
+    """
+    seen_tokens: list[set[str]] = []
+    result: list[ScoredChunk] = []
+
+    for sc in chunks:
+        tokens = set(sc.chunk.content.lower().split())
+        if any(_jaccard(tokens, s) > threshold for s in seen_tokens):
+            log.debug(f"[DEDUP] Dropped near-duplicate chunk: {sc.chunk.chunk_id}")
+            continue
+        seen_tokens.append(tokens)
+        result.append(sc)
+
+    return result

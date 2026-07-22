@@ -28,12 +28,18 @@ def set_pipeline(pipeline):
 class ResearchRequest(BaseModel):
     question: str = Field(..., min_length=3, description="The research question to answer")
     top_k: int | None = Field(None, ge=1, le=20, description="Number of chunks to retrieve")
+    mode: str = Field(
+        "local",
+        pattern="^(local|web|hybrid|auto)$",
+        description="Retrieval mode: local | web | hybrid | auto",
+    )
 
 
 class CitationModel(BaseModel):
     citation_id: int
     source: str
     chunk_preview: str
+    source_type: str = "doc"   # "doc" | "web"
 
 
 class ResearchResponse(BaseModel):
@@ -65,7 +71,7 @@ async def ask_question(request: ResearchRequest):
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     try:
-        answer = _pipeline.ask(request.question, request.top_k)
+        answer = _pipeline.ask(request.question, request.top_k, mode=request.mode)
     except Exception as e:
         log.error(f"[ERR] Research failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -78,6 +84,7 @@ async def ask_question(request: ResearchRequest):
                 citation_id=c.citation_id,
                 source=c.source,
                 chunk_preview=c.chunk_preview,
+                source_type=c.source_type,
             )
             for c in answer.citations
         ],

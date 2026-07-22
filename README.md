@@ -14,6 +14,7 @@ Built on a Retrieval-Augmented Generation (RAG) pipeline: ingest documents, ask 
 - **Multi-Provider LLM** — Unified interface supporting Groq (default, free tier) and OpenAI.
 - **Token Efficiency** — Retrieves only top-k chunks, uses minimal system prompts, caches embeddings and indexes to disk.
 - **Dual Interface** — Both CLI and REST API (FastAPI).
+- **Web Search** — Optional Tavily integration with `local`, `web`, `hybrid`, and `auto` retrieval modes.
 
 ## Architecture
 
@@ -55,7 +56,8 @@ Research-Agent/
 ├── services/
 │   ├── retriever.py           # Semantic search over indexed chunks
 │   ├── generator.py           # Grounded answer generation with citations
-│   └── pipeline.py            # RAG pipeline orchestrator
+│   ├── pipeline.py            # RAG pipeline orchestrator
+│   └── tavily_search.py       # Tavily web search client (optional)
 ├── routes/
 │   ├── documents.py           # Document upload/management endpoints
 │   └── research.py            # Research question endpoint
@@ -133,6 +135,15 @@ python cli.py ingest path/to/documents/
 # Ask a question
 python cli.py ask "How does quantum entanglement work?"
 
+# Ask using web search only (requires TAVILY_API_KEY)
+python cli.py ask "Latest AI research" --mode web
+
+# Ask using local + web results combined
+python cli.py ask "How does quantum entanglement work?" --mode hybrid
+
+# Auto mode: local first, web fallback if evidence is thin
+python cli.py ask "Recent error correction advances" --mode auto
+
 # Ask with custom retrieval depth
 python cli.py ask "What causes climate change?" --top-k 3
 
@@ -199,6 +210,14 @@ All settings are configurable via environment variables (see `.env.example`):
 | `SIMILARITY_THRESHOLD` | `0.25` | Minimum similarity score |
 | `MAX_GENERATION_TOKENS` | `1024` | Max tokens for LLM response |
 | `INDEX_DIR` | `.research_agent` | Directory for persisted index |
+| `TAVILY_API_KEY` | — | Enables web/hybrid/auto retrieval modes |
+| `TAVILY_MAX_RESULTS` | `5` | Max web results per query |
+| `TAVILY_SEARCH_DEPTH` | `basic` | `basic` or `advanced` |
+| `TAVILY_SEARCH_TOPIC` | `general` | `general` or `news` |
+| `TAVILY_OPTIMIZE_QUERY` | `false` | Rewrite query into search terms before web search |
+| `AUTO_MIN_CHUNKS` | `2` | Min local chunks before auto-mode skips web |
+| `AUTO_MIN_SCORE` | `0.45` | Min local score before auto-mode skips web |
+| `DEDUP_SIMILARITY_THRESHOLD` | `0.85` | Jaccard overlap threshold for deduplication |
 
 ## Token Efficiency
 

@@ -36,6 +36,7 @@ class Citation:
     citation_id: int
     source: str
     chunk_preview: str    # First 150 chars of the chunk
+    source_type: str = "doc"   # "doc" for local documents, "web" for Tavily results
 
 
 @dataclass
@@ -137,10 +138,12 @@ class Generator:
                 preview = sc.chunk.content[:150]
                 if len(sc.chunk.content) > 150:
                     preview += "..."
+                source_type = "web" if sc.chunk.source.startswith("[WEB]") else "doc"
                 citations.append(Citation(
                     citation_id=sc.citation_id,
                     source=sc.chunk.source,
                     chunk_preview=preview,
+                    source_type=source_type,
                 ))
         return citations
 
