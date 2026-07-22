@@ -243,18 +243,23 @@ class Pipeline:
         top_k: int,
         citation_offset: int = 0,
     ) -> list[ScoredChunk]:
-        """Run Tavily search, optionally with query optimisation."""
-        from services.tavily_search import tavily_search, optimize_query
+        """Run web search — single query for simple questions, multi-query for broad."""
+        from services.research_planner import classify_complexity, plan_research
+        from services.tavily_search import tavily_search, tavily_search_multi
 
-        query = question
-        if settings.TAVILY_OPTIMIZE_QUERY:
-            query = optimize_query(question, self.generator.provider)
+        complexity = classify_complexity(question, self.generator.provider)
 
-        return tavily_search(
-            query=query,
-            max_results=top_k,
-            citation_offset=citation_offset,
-        )
+        if complexity == "simple":
+            return tavily_search(
+                query=question,
+                citation_offset=citation_offset,
+            )
+        else:
+            queries = plan_research(question, self.generator.provider)
+            return tavily_search_multi(
+                planned_queries=queries,
+                citation_offset=citation_offset,
+            )
 
     def _merge(
         self,

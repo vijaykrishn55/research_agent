@@ -2,14 +2,14 @@
 services/tavily_search.py
 Tavily web search client for the Research Agent.
 
+Supports both single-query and multi-query (planned) search modes.
 Converts Tavily API results into ScoredChunk objects so the Pipeline and
 Generator can handle web evidence with the same interface as local chunks.
-
-Optionally rewrites the user query into an optimised search string before
-calling the API (controlled by TAVILY_OPTIMIZE_QUERY setting).
 """
 
 from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data.chunker import Chunk
 from config import settings
@@ -29,17 +29,18 @@ def tavily_search(
     search_depth: str | None = None,
     search_topic: str | None = None,
     citation_offset: int = 0,
+    query_index: int = 0,
 ) -> list[ScoredChunk]:
     """
     Search the web via Tavily and return results as ScoredChunk objects.
 
     Args:
-        query:           The search query (already optimised if applicable).
+        query:           The search query.
         max_results:     Override TAVILY_MAX_RESULTS if provided.
         search_depth:    "basic" or "advanced". Defaults to TAVILY_SEARCH_DEPTH.
         search_topic:    "general" or "news". Defaults to TAVILY_SEARCH_TOPIC.
-        citation_offset: Starting citation_id; use len(local_chunks) in hybrid
-                         mode to avoid ID collisions with local chunks.
+        citation_offset: Starting citation_id to avoid ID collisions.
+        query_index:     Index of this query in a multi-query plan (for unique chunk IDs).
 
     Returns:
         List of ScoredChunk objects with source = "[WEB] title — url".
@@ -82,7 +83,7 @@ def tavily_search(
             continue
 
         chunk = Chunk(
-            chunk_id    = f"web::result_{i}",
+            chunk_id    = f"web::q{query_index}_r{i}",
             content     = content,
             source      = f"[WEB] {title} — {url}",
             chunk_index = i,
@@ -97,38 +98,50 @@ def tavily_search(
     return results
 
 
-def optimize_query(question: str, provider) -> str:
+def tavily_search_multi(
+    planned_queries: list,
+    citation_offset: int = 0,
+) -> list[ScoredChunk]:
     """
-    Rewrite a user question into a concise web search query.
-
-    Only called when TAVILY_OPTIMIZE_QUERY is True. Uses a single lightweight
-    LLM call. Falls back to the original question on any error.
+    Execute multiple planned searches concurrently and merge results.
 
     Args:
-        question: The raw user question.
-        provider: An LLMProvider instance to call.
+        planned_queries: List of PlannedQuery objects (each with .query and .purpose).
+        citation_offset: Starting citation_id for the first result.
 
     Returns:
-        A short optimised search query string.
+        Flat list of ScoredChunk objects from all queries (unsorted, not deduped —
+        the pipeline handles global ranking and deduplication).
     """
-    prompt = (
-        f"Convert the following research question into an effective web search query. "
-        f"Output only the search query — no explanation, no punctuation at the end, "
-        f"maximum 12 words.\n\nQuestion: {question}"
-    )
-    try:
-        response = provider.generate(
-            prompt=prompt,
-            system_prompt="You are a search query optimizer.",
-            max_tokens=40,
-            temperature=0.0,
+    _require_api_key()
+
+    all_results: list[ScoredChunk] = []
+    result_count = 0  # Running offset for citation IDs
+
+    def _search_one(idx: int, pq) -> list[ScoredChunk]:
+        log.info(f"[WEB] Query {idx + 1}/{len(planned_queries)}: \"{pq.query}\" — {pq.purpose}")
+        return tavily_search(
+            query=pq.query,
+            citation_offset=citation_offset + (idx * settings.TAVILY_MAX_RESULTS),
+            query_index=idx,
         )
-        optimised = response.text.strip().strip('"').strip("'")
-        log.info(f"[OPT] Query optimised: \"{optimised}\"")
-        return optimised if optimised else question
-    except Exception as e:
-        log.warning(f"[OPT] Query optimisation failed ({e}), using original")
-        return question
+
+    # Run searches concurrently
+    with ThreadPoolExecutor(max_workers=min(len(planned_queries), 5)) as pool:
+        futures = {
+            pool.submit(_search_one, i, pq): i
+            for i, pq in enumerate(planned_queries)
+        }
+        for future in as_completed(futures):
+            try:
+                results = future.result()
+                all_results.extend(results)
+            except Exception as e:
+                idx = futures[future]
+                log.warning(f"[WEB] Query {idx + 1} failed: {e}")
+
+    log.info(f"[WEB] Multi-search: {len(planned_queries)} queries → {len(all_results)} total results")
+    return all_results
 
 
 # ---------------------------------------------------------------------------

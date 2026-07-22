@@ -57,6 +57,7 @@ Research-Agent/
 │   ├── retriever.py           # Semantic search over indexed chunks
 │   ├── generator.py           # Grounded answer generation with citations
 │   ├── pipeline.py            # RAG pipeline orchestrator
+│   ├── research_planner.py    # Query planning for multi-faceted research
 │   └── tavily_search.py       # Tavily web search client (optional)
 ├── routes/
 │   ├── documents.py           # Document upload/management endpoints
@@ -214,7 +215,6 @@ All settings are configurable via environment variables (see `.env.example`):
 | `TAVILY_MAX_RESULTS` | `5` | Max web results per query |
 | `TAVILY_SEARCH_DEPTH` | `basic` | `basic` or `advanced` |
 | `TAVILY_SEARCH_TOPIC` | `general` | `general` or `news` |
-| `TAVILY_OPTIMIZE_QUERY` | `false` | Rewrite query into search terms before web search |
 | `AUTO_MIN_CHUNKS` | `2` | Min local chunks before auto-mode skips web |
 | `AUTO_MIN_SCORE` | `0.45` | Min local score before auto-mode skips web |
 | `DEDUP_SIMILARITY_THRESHOLD` | `0.85` | Jaccard overlap threshold for deduplication |

@@ -34,7 +34,6 @@ TAVILY_API_KEY        = os.getenv("TAVILY_API_KEY", "")
 TAVILY_MAX_RESULTS    = int(os.getenv("TAVILY_MAX_RESULTS", "5"))
 TAVILY_SEARCH_DEPTH   = os.getenv("TAVILY_SEARCH_DEPTH", "basic")    # basic | advanced
 TAVILY_SEARCH_TOPIC   = os.getenv("TAVILY_SEARCH_TOPIC", "general")  # general | news
-TAVILY_OPTIMIZE_QUERY = os.getenv("TAVILY_OPTIMIZE_QUERY", "false").lower() == "true"
 
 # -- Auto-mode thresholds ------------------------------------------------------
 AUTO_MIN_CHUNKS = int(os.getenv("AUTO_MIN_CHUNKS", "2"))

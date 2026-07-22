@@ -2,8 +2,8 @@
 services/generator.py
 Grounded answer generation with citation tracking.
 
-Builds a minimal prompt from retrieved chunks, calls the LLM,
-and parses citations from the response.
+Produces structured research briefs from retrieved evidence using
+Markdown formatting with section headings and cited claims.
 """
 
 import re
@@ -16,18 +16,36 @@ from utils.log import get_logger
 log = get_logger(__name__)
 
 
-# ── System prompt — kept minimal to save tokens ──────────────────────────────
+# ── System prompt — structured research brief ─────────────────────────────────
 
-SYSTEM_PROMPT = """You are a research assistant that answers questions strictly from provided evidence.
+SYSTEM_PROMPT = """You are a research analyst producing professional research briefs from provided evidence.
+
+Structure your response using Markdown. Use these sections when evidence supports them — omit any section that lacks evidence:
+
+## Overview
+2–4 sentence summary describing the subject. Cite every factual claim [N].
+
+## Key Facts
+- Bullet list of factual details (founded, headquarters, industry, size, mission, status, etc.)
+- Only include facts directly stated in the evidence.
+
+## Products / Services
+Summarize the products, technologies, platforms, or services mentioned.
+
+## Notable Information
+Funding, milestones, partnerships, launches, acquisitions, or other significant findings.
+
+## Evidence Summary
+Short synthesis of what the evidence collectively shows. If sources agree, note that. If sources disagree, state both positions explicitly.
 
 Rules:
-1. Read ALL numbered evidence chunks before answering.
-2. Cite every claim with [N] where N is the chunk number (e.g. [1], [2][3]).
-3. If multiple chunks support a claim, cite all of them: [1][2].
-4. NEVER say information is missing if it appears anywhere in the provided chunks.
-5. NEVER fabricate information or citations not grounded in the chunks.
-6. Only state "The available evidence does not address this question" when truly NO chunk is relevant.
-7. Be concise and direct."""
+1. Cite every factual claim with [N] where N is the chunk number (e.g. [1], [2][3]).
+2. If multiple chunks support a claim, cite all of them: [1][2].
+3. NEVER fabricate information or citations not grounded in the chunks.
+4. Omit any section that has no supporting evidence.
+5. If sources conflict, state both positions rather than choosing one.
+6. Be concise and information-dense.
+7. Only state "The available evidence does not address this question" when truly NO chunk is relevant."""
 
 
 @dataclass
@@ -52,14 +70,14 @@ class ResearchAnswer:
 
 
 class Generator:
-    """Generates grounded answers from retrieved chunks using an LLM."""
+    """Generates grounded research briefs from retrieved chunks using an LLM."""
 
     def __init__(self, provider: LLMProvider):
         self.provider = provider
 
     def generate(self, question: str, scored_chunks: list[ScoredChunk]) -> ResearchAnswer:
         """
-        Generate a grounded answer from retrieved chunks.
+        Generate a grounded research brief from retrieved chunks.
 
         If no chunks are provided, returns an honest "insufficient evidence" answer
         without calling the LLM (saves tokens).
@@ -102,7 +120,7 @@ class Generator:
         )
 
         log.info(
-            f"[LOG] Generated answer: {len(citations)} citations, "
+            f"[LOG] Generated brief: {len(citations)} citations, "
             f"confidence={confidence}, {response.tokens_used} tokens"
         )
 
@@ -111,7 +129,10 @@ class Generator:
     def _build_prompt(self, question: str, chunks: list[ScoredChunk]) -> str:
         """Build the user prompt with numbered evidence chunks."""
         n = len(chunks)
-        header = f"You have {n} evidence chunk(s) below. Use ALL of them when answering.\n"
+        header = (
+            f"You have {n} evidence chunk(s) below. "
+            f"Produce a research brief answering the question using ALL relevant evidence.\n"
+        )
 
         evidence_lines = []
         for sc in chunks:
@@ -121,7 +142,7 @@ class Generator:
             )
 
         evidence_block = "\n\n".join(evidence_lines)
-        return f"{header}\n{evidence_block}\n\n--- Question ---\n{question}"
+        return f"{header}\n{evidence_block}\n\n--- Research Question ---\n{question}"
 
     def _extract_citation_ids(self, text: str) -> set[int]:
         """Extract all [N] citation references from the LLM output."""
