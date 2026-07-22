@@ -1,0 +1,61 @@
+{
+  "description": "Sample research questions for testing the Research Agent",
+  "questions": [
+    {
+      "question": "What are the three main paradigms of machine learning?",
+      "expected_sources": ["artificial_intelligence.md"],
+      "difficulty": "straightforward"
+    },
+    {
+      "question": "How does retrieval-augmented generation address the hallucination problem in LLMs?",
+      "expected_sources": ["artificial_intelligence.md"],
+      "difficulty": "moderate"
+    },
+    {
+      "question": "What is the greenhouse effect and how do human activities contribute to it?",
+      "expected_sources": ["climate_change.txt"],
+      "difficulty": "straightforward"
+    },
+    {
+      "question": "Compare superconducting qubits and trapped ion qubits in terms of their advantages and limitations.",
+      "expected_sources": ["quantum_computing.md"],
+      "difficulty": "moderate"
+    },
+    {
+      "question": "What ethical concerns arise from the use of AI in high-stakes decision making?",
+      "expected_sources": ["artificial_intelligence.md"],
+      "difficulty": "moderate"
+    },
+    {
+      "question": "What are the projected impacts of climate change under high-emissions scenarios?",
+      "expected_sources": ["climate_change.txt"],
+      "difficulty": "straightforward"
+    },
+    {
+      "question": "How could quantum computing impact current cryptographic systems?",
+      "expected_sources": ["quantum_computing.md"],
+      "difficulty": "moderate"
+    },
+    {
+      "question": "What is the role of the Transformer architecture in modern AI?",
+      "expected_sources": ["artificial_intelligence.md"],
+      "difficulty": "straightforward"
+    },
+    {
+      "question": "What are the main strategies for mitigating climate change?",
+      "expected_sources": ["climate_change.txt"],
+      "difficulty": "moderate"
+    },
+    {
+      "question": "What is quantum entanglement and why is it important for quantum computing?",
+      "expected_sources": ["quantum_computing.md"],
+      "difficulty": "straightforward"
+    },
+    {
+      "question": "What is the current status of nuclear fusion research?",
+      "expected_sources": [],
+      "difficulty": "out_of_scope",
+      "note": "Tests the system's ability to state insufficient evidence"
+    }
+  ]
+}

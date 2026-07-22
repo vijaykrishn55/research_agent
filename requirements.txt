@@ -1,0 +1,21 @@
+# Research-Agent Dependencies
+# Core API
+fastapi==0.115.12
+uvicorn==0.34.3
+python-multipart==0.0.20
+python-dotenv==1.1.0
+
+# LLM Providers
+groq==0.25.0
+openai==1.82.0
+
+# Embeddings & Vector Search
+sentence-transformers==4.1.0
+faiss-cpu==1.11.0
+
+# Document Processing
+pypdf==5.6.0
+
+# Utilities
+numpy>=1.26.0
+pydantic>=2.0.0

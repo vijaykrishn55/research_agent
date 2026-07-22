@@ -1,0 +1,49 @@
+{
+  "description": "Example output from the Research Agent showing citation format and structure",
+  "example_response": {
+    "question": "What are the three main paradigms of machine learning?",
+    "answer": "The three primary paradigms of machine learning are:\n\n1. **Supervised Learning** — involves training models on labeled datasets where both input features and desired outputs are provided. Common algorithms include linear regression, decision trees, and neural networks [1].\n\n2. **Unsupervised Learning** — operates on data without predefined labels, seeking to discover hidden patterns or structures. Key techniques include clustering (K-means) and dimensionality reduction (PCA) [2].\n\n3. **Reinforcement Learning** — trains agents to make sequential decisions by maximizing cumulative rewards through interaction with an environment. Unlike supervised learning, it does not require labeled data [1][3].\n\nEach paradigm is suited to different types of problems, from classification and pattern discovery to sequential decision-making [1][2][3].",
+    "citations": [
+      {
+        "citation_id": 1,
+        "source": "artificial_intelligence.md",
+        "chunk_preview": "Machine learning (ML) is a subset of AI that enables systems to learn patterns from data without being explicitly programmed. There are three primary paradigms..."
+      },
+      {
+        "citation_id": 2,
+        "source": "artificial_intelligence.md",
+        "chunk_preview": "**Unsupervised Learning** operates on data without predefined labels, seeking to discover hidden patterns or structures. Clustering algorithms like K-means..."
+      },
+      {
+        "citation_id": 3,
+        "source": "artificial_intelligence.md",
+        "chunk_preview": "**Reinforcement Learning** (RL) trains agents to make sequential decisions by maximizing cumulative rewards through interaction with an environment..."
+      }
+    ],
+    "chunks_retrieved": 5,
+    "chunks_cited": 3,
+    "confidence": "high",
+    "metrics": {
+      "tokens_used": 487,
+      "latency_ms": 1250.3,
+      "total_latency_ms": 1312.7,
+      "model": "llama-3.1-8b-instant",
+      "provider": "groq"
+    }
+  },
+  "out_of_scope_example": {
+    "question": "What is the current status of nuclear fusion research?",
+    "answer": "The available evidence does not fully address this question. The ingested documents cover artificial intelligence, climate change, and quantum computing, but do not contain specific information about nuclear fusion research. To answer this question, relevant documents about nuclear fusion would need to be ingested first.",
+    "citations": [],
+    "chunks_retrieved": 5,
+    "chunks_cited": 0,
+    "confidence": "low",
+    "metrics": {
+      "tokens_used": 312,
+      "latency_ms": 890.1,
+      "total_latency_ms": 940.5,
+      "model": "llama-3.1-8b-instant",
+      "provider": "groq"
+    }
+  }
+}

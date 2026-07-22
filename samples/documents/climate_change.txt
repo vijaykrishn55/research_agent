@@ -1,0 +1,41 @@
+Climate Change: Science, Impacts, and Mitigation
+
+Scientific Basis
+
+Climate change refers to long-term shifts in global temperatures and weather patterns. While climate has varied naturally throughout Earth's history due to volcanic eruptions, solar cycles, and orbital variations, the current warming trend is unequivocally driven by human activities, primarily the burning of fossil fuels since the Industrial Revolution.
+
+The greenhouse effect is the fundamental mechanism behind climate change. Certain gases in Earth's atmosphere — carbon dioxide (CO2), methane (CH4), nitrous oxide (N2O), and fluorinated gases — trap outgoing infrared radiation, warming the planet's surface. Without any greenhouse effect, Earth's average temperature would be approximately -18°C instead of the current 15°C. The problem arises when human activities significantly increase the concentration of these gases beyond natural levels.
+
+Carbon dioxide concentrations have risen from approximately 280 parts per million (ppm) in the pre-industrial era to over 420 ppm as of 2024. This represents a 50% increase, with the rate of rise accelerating over the past several decades. The primary sources of CO2 emissions are fossil fuel combustion (coal, oil, and natural gas) for energy production, transportation, and industrial processes, followed by deforestation and land-use changes.
+
+Methane, while present in lower concentrations than CO2, has a global warming potential approximately 80 times greater over a 20-year period. Major sources include livestock agriculture (enteric fermentation), rice paddies, landfills, and fossil fuel extraction (particularly natural gas leaks). Methane concentrations have more than doubled since pre-industrial times.
+
+The Intergovernmental Panel on Climate Change (IPCC) — the United Nations body responsible for assessing climate science — concluded in its Sixth Assessment Report (2021-2023) that human influence has warmed the planet by approximately 1.1°C above pre-industrial levels. The report states with high confidence that continued greenhouse gas emissions will cause further warming and long-lasting changes across all components of the climate system.
+
+Observed and Projected Impacts
+
+Global warming is already causing observable changes across Earth's systems. Arctic sea ice extent has declined by approximately 13% per decade since satellite measurements began in 1979. The Greenland and Antarctic ice sheets are losing mass at accelerating rates, contributing to sea level rise. Global mean sea level has risen by approximately 20 cm since 1900, with the rate of rise accelerating to 3.7 mm per year during the 2006-2018 period.
+
+Extreme weather events are becoming more frequent and severe. Heatwaves are occurring more often and lasting longer. The probability of extreme precipitation events has increased in many regions, while droughts have intensified in others. Tropical cyclones are exhibiting higher peak wind speeds and heavier rainfall, though the total number of storms has not clearly increased.
+
+Ocean acidification, caused by the absorption of excess CO2, threatens marine ecosystems. The ocean has absorbed approximately 30% of human-emitted CO2, causing a 26% increase in acidity since pre-industrial times. This chemical change impairs the ability of organisms like corals, mollusks, and certain plankton species to form calcium carbonate shells and skeletons, with cascading effects through marine food webs.
+
+Biodiversity loss is accelerated by climate change through habitat disruption, phenological mismatches (timing of seasonal events), and range shifts. Species that cannot migrate or adapt quickly enough face increased extinction risk. Coral reefs, which support approximately 25% of marine species, are particularly vulnerable — widespread bleaching events have already caused significant mortality.
+
+Under a high-emissions scenario (SSP5-8.5), the IPCC projects global warming of 3.3°C to 5.7°C by 2100 relative to pre-industrial levels. Even under moderate mitigation scenarios, warming is projected to reach 2.1°C to 3.5°C. The consequences include sea level rise of 0.4 to 1.0 meters (potentially more with ice sheet instabilities), widespread ecosystem disruption, reduced agricultural yields in many regions, and significant threats to human health and infrastructure.
+
+Mitigation Strategies
+
+Mitigation involves reducing greenhouse gas emissions and enhancing carbon sinks. The primary strategy is the transition from fossil fuels to renewable energy sources. Solar photovoltaic and wind power costs have decreased by approximately 85% and 55% respectively over the past decade, making them cost-competitive with or cheaper than new fossil fuel capacity in most markets.
+
+Energy efficiency improvements across buildings, transportation, and industry offer significant emission reduction potential. Building standards, vehicle efficiency regulations, and industrial process optimization can collectively reduce energy demand by 40-50% compared to baseline projections, according to the International Energy Agency.
+
+Carbon capture and storage (CCS) technologies aim to capture CO2 from point sources (power plants, industrial facilities) or directly from the atmosphere (direct air capture, or DAC). While technically feasible, these technologies face significant cost and scalability challenges. Current deployed CCS capacity captures less than 0.1% of global annual CO2 emissions.
+
+Nature-based solutions — including reforestation, afforestation, improved forest management, wetland restoration, and soil carbon management — can sequester significant quantities of CO2 while providing co-benefits for biodiversity and ecosystem services. However, the permanence of biological carbon storage is uncertain, as forests are vulnerable to fire, disease, and future climate change.
+
+Adaptation and Resilience
+
+Adaptation strategies aim to reduce vulnerability to climate impacts that can no longer be avoided. These include infrastructure hardening against extreme weather, development of drought-resistant crop varieties, improved early warning systems for natural disasters, managed retreat from coastal areas threatened by sea level rise, and urban heat island mitigation through green infrastructure.
+
+The Paris Agreement, adopted in 2015 by 196 parties, established the goal of limiting global warming to well below 2°C above pre-industrial levels, with efforts to limit warming to 1.5°C. Achieving the 1.5°C target requires reaching net-zero CO2 emissions by approximately 2050 and reducing methane emissions by at least 30% by 2030. Current national commitments (Nationally Determined Contributions) are collectively insufficient to meet these targets, highlighting the need for significantly more ambitious action.
