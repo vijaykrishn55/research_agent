@@ -22,9 +22,10 @@ from data.index_store import IndexStore
 from providers.embedder import Embedder
 from providers.base import LLMProvider, create_provider
 from services.retriever import Retriever, ScoredChunk
-from services.generator import Generator, ResearchAnswer
+from services.generator import Generator, ResearchAnswer, save_last_answer
 from config import settings
 from utils.log import get_logger
+from utils.events import research_log
 
 log = get_logger(__name__)
 
@@ -50,6 +51,7 @@ class Pipeline:
         self._retriever = Retriever(self._embedder, self._index_store)
         self._provider = provider
         self._generator: Generator | None = None
+        self._last_answer: ResearchAnswer | None = None
 
     @property
     def generator(self) -> Generator:
@@ -181,35 +183,114 @@ class Pipeline:
         k = top_k or settings.TOP_K
         research_plan = None  # Will be set if planner runs
 
+        research_log.reset()
+        research_log.emit(
+            "pipeline", f"Starting research ({mode} mode)",
+            details={"question": question, "mode": mode, "top_k": k},
+        )
+
         if mode == "local":
+            t0 = time.time()
+            research_log.emit("retrieval", "Searching local index…")
             scored_chunks = self._retriever.retrieve(question, k)
+            research_log.emit(
+                "retrieval", f"Local search complete — {len(scored_chunks)} chunk(s)",
+                duration_ms=round((time.time() - t0) * 1000, 1),
+                details={"chunks": len(scored_chunks)},
+            )
 
         elif mode == "web":
+            t0 = time.time()
+            research_log.emit("search", "Starting web retrieval…")
             research_plan, scored_chunks = self._web_retrieve(question, k)
+            research_log.emit(
+                "search", f"Web retrieval done — {len(scored_chunks)} result(s)",
+                duration_ms=round((time.time() - t0) * 1000, 1),
+                details={"chunks": len(scored_chunks)},
+            )
 
         elif mode == "hybrid":
+            t0 = time.time()
+            research_log.emit("retrieval", "Searching local index…")
             local_chunks = self._retriever.retrieve(question, k)
+            research_log.emit(
+                "retrieval", f"Local search complete — {len(local_chunks)} chunk(s)",
+                duration_ms=round((time.time() - t0) * 1000, 1),
+            )
+
+            t0 = time.time()
+            research_log.emit("search", "Starting web retrieval…")
             research_plan, web_chunks = self._web_retrieve(question, k, citation_offset=len(local_chunks))
+            research_log.emit(
+                "search", f"Web retrieval done — {len(web_chunks)} result(s)",
+                duration_ms=round((time.time() - t0) * 1000, 1),
+            )
+
             scored_chunks = self._merge(local_chunks, web_chunks, k)
 
         else:  # auto
+            t0 = time.time()
+            research_log.emit("retrieval", "Searching local index…")
             local_chunks = self._retriever.retrieve(question, k)
+            research_log.emit(
+                "retrieval", f"Local search complete — {len(local_chunks)} chunk(s)",
+                duration_ms=round((time.time() - t0) * 1000, 1),
+            )
+
             if self._is_sufficient(local_chunks):
                 log.info("[AUTO] Local evidence sufficient — skipping web search")
+                research_log.emit(
+                    "pipeline", "Local evidence sufficient — skipping web search",
+                    details={"top_score": local_chunks[0].score if local_chunks else 0},
+                )
                 scored_chunks = local_chunks
             else:
                 if settings.TAVILY_API_KEY:
                     log.info("[AUTO] Insufficient local evidence — falling back to hybrid")
+                    research_log.emit(
+                        "pipeline", "Insufficient local evidence — falling back to hybrid",
+                        details={
+                            "top_score": local_chunks[0].score if local_chunks else 0,
+                            "chunks": len(local_chunks),
+                        },
+                    )
+                    t0 = time.time()
+                    research_log.emit("search", "Starting web retrieval…")
                     research_plan, web_chunks = self._web_retrieve(question, k, citation_offset=len(local_chunks))
+                    research_log.emit(
+                        "search", f"Web retrieval done — {len(web_chunks)} result(s)",
+                        duration_ms=round((time.time() - t0) * 1000, 1),
+                    )
                     scored_chunks = self._merge(local_chunks, web_chunks, k)
                 else:
                     log.warning(
                         "[AUTO] Evidence thin but TAVILY_API_KEY not set — "
                         "answering with local evidence only"
                     )
+                    research_log.emit(
+                        "pipeline",
+                        "Evidence thin but TAVILY_API_KEY not set — using local only",
+                        level="warn",
+                    )
                     scored_chunks = local_chunks
 
+        t0 = time.time()
+        research_log.emit(
+            "generation",
+            f"Generating answer from {len(scored_chunks)} chunk(s)…",
+        )
         answer = self.generator.generate(question, scored_chunks)
+        research_log.emit(
+            "generation",
+            f"Answer generated — {answer.chunks_cited} citation(s), "
+            f"confidence: {answer.confidence}",
+            duration_ms=round((time.time() - t0) * 1000, 1),
+            details={
+                "citations": answer.chunks_cited,
+                "confidence": answer.confidence,
+                "tokens": answer.metrics.get("tokens_used", "N/A"),
+            },
+        )
 
         total_ms = round((time.time() - start) * 1000, 1)
         answer.metrics["total_latency_ms"] = total_ms
@@ -222,7 +303,27 @@ class Pipeline:
                 for pq in research_plan
             ]
 
+        research_log.emit(
+            "pipeline", "Research complete",
+            duration_ms=total_ms,
+            details={"mode": mode, "total_chunks": len(scored_chunks)},
+        )
+
+        # Attach the event log for verbose display / API consumers
+        answer.metrics["event_log"] = research_log.to_dicts()
+
+        # Cache for the evidence API endpoint
+        self._last_answer = answer
+
+        # Persist to disk so `python cli.py explain <N>` works across sessions
+        save_last_answer(answer)
+
         return answer
+
+    @property
+    def last_answer(self) -> ResearchAnswer | None:
+        """The most recent ResearchAnswer (for the evidence endpoint)."""
+        return self._last_answer
 
     # -- Index Management ------------------------------------------------------
 
@@ -259,18 +360,47 @@ class Pipeline:
         from services.research_planner import classify_complexity, plan_research
         from services.tavily_search import tavily_search, tavily_search_multi
 
+        t0 = time.time()
+        research_log.emit("planner", "Classifying query complexity…")
         complexity = classify_complexity(question, self.generator.provider)
+        research_log.emit(
+            "planner", f"Query classified as: {complexity}",
+            duration_ms=round((time.time() - t0) * 1000, 1),
+            details={"complexity": complexity},
+        )
 
         if complexity == "simple":
-            return None, tavily_search(
-                query=question,
-                citation_offset=citation_offset,
+            research_log.emit("search", "Simple query — single Tavily search")
+            t1 = time.time()
+            chunks = tavily_search(query=question, citation_offset=citation_offset)
+            research_log.emit(
+                "search", f"Tavily returned {len(chunks)} result(s)",
+                duration_ms=round((time.time() - t1) * 1000, 1),
             )
+            return None, chunks
         else:
+            t1 = time.time()
+            research_log.emit("planner", "Broad query — planning sub-queries…")
             queries = plan_research(question, self.generator.provider)
+            research_log.emit(
+                "planner", f"Research plan created — {len(queries)} sub-quer(ies)",
+                duration_ms=round((time.time() - t1) * 1000, 1),
+                details={
+                    "queries": [{"query": pq.query, "purpose": pq.purpose} for pq in queries],
+                },
+            )
+
+            t1 = time.time()
+            research_log.emit(
+                "search", f"Executing {len(queries)} concurrent web searches…",
+            )
             chunks = tavily_search_multi(
                 planned_queries=queries,
                 citation_offset=citation_offset,
+            )
+            research_log.emit(
+                "search", f"All web searches complete — {len(chunks)} total result(s)",
+                duration_ms=round((time.time() - t1) * 1000, 1),
             )
             return queries, chunks
 
@@ -285,12 +415,19 @@ class Pipeline:
         Re-assigns citation_ids sequentially after sorting.
         """
         combined = local_chunks + web_chunks
+        pre_dedup = len(combined)
+
+        research_log.emit(
+            "pipeline",
+            f"Merging {len(local_chunks)} local + {len(web_chunks)} web chunk(s)…",
+        )
 
         # Sort by relevance score descending
         combined.sort(key=lambda sc: sc.score, reverse=True)
 
         # Deduplicate by Jaccard token overlap
         combined = _dedup(combined, settings.DEDUP_SIMILARITY_THRESHOLD)
+        dropped = pre_dedup - len(combined)
 
         # Take top-k
         combined = combined[:top_k]
@@ -298,6 +435,18 @@ class Pipeline:
         # Re-assign citation IDs so they are 1..N after ranking
         for idx, sc in enumerate(combined):
             sc.citation_id = idx + 1
+
+        research_log.emit(
+            "pipeline",
+            f"Merge complete — {pre_dedup} → {len(combined)} chunk(s) "
+            f"({dropped} duplicate(s) dropped, top-{top_k} kept)",
+            details={
+                "local": len(local_chunks),
+                "web": len(web_chunks),
+                "dedup_dropped": dropped,
+                "final": len(combined),
+            },
+        )
 
         log.info(
             f"[MERGE] {len(local_chunks)} local + {len(web_chunks)} web "

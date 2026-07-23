@@ -40,6 +40,7 @@ class CitationModel(BaseModel):
     source: str
     chunk_preview: str
     source_type: str = "doc"   # "doc" | "web"
+    full_text: str | None = None
 
 
 class ResearchResponse(BaseModel):
@@ -50,6 +51,14 @@ class ResearchResponse(BaseModel):
     chunks_cited: int
     confidence: str
     metrics: dict
+
+
+class EvidenceResponse(BaseModel):
+    citation_id: int
+    source: str
+    source_type: str
+    full_text: str | None = None
+    chunk_preview: str
 
 
 class StatusResponse(BaseModel):
@@ -85,6 +94,7 @@ async def ask_question(request: ResearchRequest):
                 source=c.source,
                 chunk_preview=c.chunk_preview,
                 source_type=c.source_type,
+                full_text=c.full_text,
             )
             for c in answer.citations
         ],
@@ -110,4 +120,36 @@ async def get_status():
         embedding_model=status["embedding_model"],
         llm_provider=status["llm_provider"],
         llm_model=status["llm_model"],
+    )
+
+
+# GET /api/research/evidence/{citation_id}
+@router.get("/evidence/{citation_id}", response_model=EvidenceResponse)
+async def get_evidence(citation_id: int):
+    """Return the full evidence chunk for a specific citation from the last research answer."""
+    if not _pipeline:
+        raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+    last = _pipeline.last_answer
+    if last is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No research has been performed yet. Submit a question first.",
+        )
+
+    # Find the matching citation
+    for c in last.citations:
+        if c.citation_id == citation_id:
+            return EvidenceResponse(
+                citation_id=c.citation_id,
+                source=c.source,
+                source_type=c.source_type,
+                full_text=c.full_text,
+                chunk_preview=c.chunk_preview,
+            )
+
+    available = sorted(c.citation_id for c in last.citations)
+    raise HTTPException(
+        status_code=404,
+        detail=f"Citation [{citation_id}] not found. Available IDs: {available}",
     )

@@ -22,3 +22,7 @@ pydantic>=2.0.0
 
 # Web Search (optional — only needed for web/hybrid/auto modes)
 tavily-python>=0.5.0
+
+# Export (optional — only needed for --export md/pdf)
+markdown>=3.5
+xhtml2pdf>=0.2.11        # Pure-Python PDF renderer (no GTK needed on Windows)

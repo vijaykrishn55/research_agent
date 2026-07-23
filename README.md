@@ -58,12 +58,14 @@ Research-Agent/
 │   ├── generator.py           # Grounded answer generation with citations
 │   ├── pipeline.py            # RAG pipeline orchestrator
 │   ├── research_planner.py    # Query planning for multi-faceted research
-│   └── tavily_search.py       # Tavily web search client (optional)
+│   ├── tavily_search.py       # Tavily web search client (optional)
+│   └── exporter.py            # Markdown/PDF export with citations
 ├── routes/
 │   ├── documents.py           # Document upload/management endpoints
 │   └── research.py            # Research question endpoint
 ├── utils/
-│   └── log.py                 # Structured logging
+│   ├── log.py                 # Structured logging
+│   └── events.py              # Pipeline event collector (research log)
 ├── samples/
 │   ├── documents/             # Sample research documents
 │   ├── questions.json         # Sample research questions
@@ -154,6 +156,18 @@ python cli.py ask "What is the Transformer architecture?" --json
 # Ask without showing the research plan (shown by default in web/hybrid/auto modes)
 python cli.py ask "Latest AI research" --mode web --hide-plan
 
+# Ask with verbose pipeline log showing every step with timestamps
+python cli.py ask "How does quantum entanglement work?" --verbose
+
+# Export the answer to Markdown (optional)
+python cli.py ask "AI ethics overview" --mode web --export md
+
+# Export to both Markdown and PDF with a custom filename
+python cli.py ask "Climate change impacts" --export md pdf --export-file climate_report
+
+# Show the full evidence chunk for citation [3] from the last research
+python cli.py explain 3
+
 # View index status
 python cli.py status
 
@@ -180,6 +194,7 @@ uvicorn server:app --reload
 | `DELETE` | `/api/documents` | Clear the index |
 | `POST` | `/api/research` | Ask a research question |
 | `GET` | `/api/research/status` | System status |
+| `GET` | `/api/research/evidence/{id}` | Full evidence chunk for citation [id] |
 
 #### Example API Calls
 
@@ -192,6 +207,9 @@ curl -X POST http://localhost:8000/api/documents/upload \
 curl -X POST http://localhost:8000/api/research \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the ethical concerns around AI?"}'
+
+# Explain a specific citation from the last research
+curl http://localhost:8000/api/research/evidence/3
 ```
 
 Interactive docs available at: `http://localhost:8000/docs`
@@ -232,6 +250,81 @@ The system is designed to minimize LLM token usage:
 4. **Disk-persisted index** — Embeddings computed once, reused across sessions.
 5. **Skip-on-duplicate** — Already-ingested files are skipped automatically.
 6. **No LLM call when empty** — If no relevant chunks are found, returns an honest response without calling the LLM.
+
+## Research Log
+
+Pass `--verbose` to any `ask` command to see a timestamped, step-by-step log of the entire pipeline execution:
+
+```
+── Research Log ──
+  15:36:23.412  [+] [pipeline]     Starting research (web mode)
+          |  mode: web, top_k: 8
+  15:36:24.103  [+] [planner]      Classifying query complexity…
+  15:36:25.234  [+] [planner]      Query classified as: broad  (1131ms)
+          |  complexity: broad
+  15:36:25.240  [+] [planner]      Broad query — planning sub-queries…
+  15:36:25.890  [+] [planner]      Research plan created — 5 sub-queries  (650ms)
+          |  queries:
+          |  1. "Qbit Force official website quantum computing"
+          |     -> To find the official website…
+          |  2. "Qbit Force founders team background"
+          |     -> To discover information about the founders…
+  15:36:26.100  [+] [search]       Executing 5 concurrent web searches…
+  15:36:28.200  [+] [search]       Fetched 5 page(s) for "Qbit Force official…"  (800ms)
+          |  sources:
+          |  1. Qbit Force — https://linkedin.com/company/qbit-force
+          |  2. About Us — https://qbitforcequantum.com/company
+  …
+  15:36:31.500  [+] [pipeline]     Merge complete — 33 → 25 chunk(s) (8 dropped)
+  15:36:31.510  [+] [generation]   Generating answer from 25 chunk(s)…
+  15:36:33.200  [+] [generation]   LLM call complete — groq/llama-3.3-70b-versatile  (2254ms)
+          |  model: llama-3.3-70b-versatile
+          |  tokens_used: 4845
+  15:36:33.300  [+] [pipeline]     Research complete  (10163ms)
+```
+
+The log is also available in JSON output (`--json`) as the `event_log` field, and via the REST API in `metrics.event_log`.
+
+## Export & Evidence
+
+### Export to Markdown / PDF
+
+Export the final answer as a standalone document with clickable citations and a full evidence appendix. Export is **optional** — it only runs when you pass the flag.
+
+```bash
+# Markdown export
+python cli.py ask "AI ethics" --mode web --export md
+
+# PDF export (requires xhtml2pdf — pip install xhtml2pdf)
+python cli.py ask "AI ethics" --mode web --export pdf
+
+# Both formats, custom filename
+python cli.py ask "AI ethics" --export md pdf --export-file ai_ethics_report
+```
+
+**Markdown output** includes clickable `[N]` footnote links, a metadata header (date, mode, confidence), and an Evidence Appendix with full source text and URLs.
+
+**PDF output** converts the Markdown to styled HTML (via the `markdown` library) then renders to PDF with `xhtml2pdf` (pure Python, no GTK needed on Windows). Install both:
+```bash
+pip install markdown xhtml2pdf
+```
+
+### Explain the Evidence
+
+Ask "why?" for any citation to see the exact chunk that supports a claim:
+
+```bash
+# Show the full evidence for citation [3] from the last research
+python cli.py explain 3
+```
+
+Via the REST API, call `GET /api/research/evidence/{citation_id}` after submitting a research question:
+
+```bash
+curl http://localhost:8000/api/research/evidence/3
+```
+
+Returns the full chunk text, source, and source type for the given citation.
 
 ## Sample Output
 

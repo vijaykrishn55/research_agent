@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from providers.base import LLMProvider, ProviderResponse
 from services.retriever import ScoredChunk
 from utils.log import get_logger
+from utils.events import research_log
 
 log = get_logger(__name__)
 
@@ -50,6 +51,7 @@ class Citation:
     source: str
     chunk_preview: str    # First 150 chars of the chunk
     source_type: str = "doc"   # "doc" for local documents, "web" for Tavily results
+    full_text: str | None = None  # Complete chunk content for evidence display
 
 
 @dataclass
@@ -92,6 +94,17 @@ class Generator:
         response = self.provider.generate(
             prompt=prompt,
             system_prompt=SYSTEM_PROMPT,
+        )
+
+        research_log.emit(
+            "generation",
+            f"LLM call complete — {response.provider}/{response.model}",
+            duration_ms=response.latency_ms,
+            details={
+                "model": response.model,
+                "provider": response.provider,
+                "tokens_used": response.tokens_used,
+            },
         )
 
         # Parse citations from the response
@@ -171,6 +184,7 @@ class Generator:
                     source=sc.chunk.source,
                     chunk_preview=preview,
                     source_type=source_type,
+                    full_text=sc.chunk.content,
                 ))
             else:
                 # Placeholder for IDs the LLM cited but weren't in our chunks
@@ -205,3 +219,68 @@ class Generator:
             return "medium"
         else:
             return "low"
+
+
+# ── Persistence — save / load last answer ─────────────────────────────────────
+
+import json as _json
+import os as _os
+
+
+def _cache_path() -> str:
+    """Return the path for the last-answer cache file."""
+    from config import settings
+    return _os.path.join(settings.INDEX_DIR, ".last_answer.json")
+
+
+def save_last_answer(answer: "ResearchAnswer") -> None:
+    """Persist a ResearchAnswer to disk as JSON (for the explain command)."""
+    data = {
+        "question": answer.question,
+        "answer": answer.answer,
+        "citations": [
+            {
+                "citation_id": c.citation_id,
+                "source": c.source,
+                "chunk_preview": c.chunk_preview,
+                "source_type": c.source_type,
+                "full_text": c.full_text,
+            }
+            for c in answer.citations
+        ],
+        "chunks_retrieved": answer.chunks_retrieved,
+        "chunks_cited": answer.chunks_cited,
+        "confidence": answer.confidence,
+    }
+    path = _cache_path()
+    _os.makedirs(_os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        _json.dump(data, f, ensure_ascii=False, indent=2)
+    log.debug(f"[CACHE] Saved last answer to {path}")
+
+
+def load_last_answer() -> "ResearchAnswer | None":
+    """Load the most recently saved ResearchAnswer from disk."""
+    path = _cache_path()
+    if not _os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        data = _json.load(f)
+    citations = [
+        Citation(
+            citation_id=c["citation_id"],
+            source=c["source"],
+            chunk_preview=c["chunk_preview"],
+            source_type=c["source_type"],
+            full_text=c.get("full_text"),
+        )
+        for c in data.get("citations", [])
+    ]
+    return ResearchAnswer(
+        question=data["question"],
+        answer=data["answer"],
+        citations=citations,
+        chunks_retrieved=data.get("chunks_retrieved", 0),
+        chunks_cited=data.get("chunks_cited", 0),
+        confidence=data.get("confidence", "low"),
+    )

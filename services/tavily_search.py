@@ -15,6 +15,7 @@ from data.chunker import Chunk
 from config import settings
 from services.retriever import ScoredChunk
 from utils.log import get_logger
+from utils.events import research_log
 
 log = get_logger(__name__)
 
@@ -64,6 +65,8 @@ def tavily_search(
         f"(depth={search_depth}, topic={search_topic}, max={max_results})"
     )
 
+    import time as _time
+    _t0 = _time.time()
     client = TavilyClient(api_key=settings.TAVILY_API_KEY)
     response = client.search(
         query=query,
@@ -71,8 +74,10 @@ def tavily_search(
         search_depth=search_depth,
         topic=search_topic,
     )
+    _elapsed = round((_time.time() - _t0) * 1000, 1)
 
     results: list[ScoredChunk] = []
+    source_urls: list[str] = []
     for i, item in enumerate(response.get("results", [])):
         title   = item.get("title", "Untitled")
         url     = item.get("url", "")
@@ -82,6 +87,7 @@ def tavily_search(
         if not content:
             continue
 
+        source_urls.append(f"{title} — {url}")
         chunk = Chunk(
             chunk_id    = f"web::q{query_index}_r{i}",
             content     = content,
@@ -93,6 +99,13 @@ def tavily_search(
             score       = round(score, 4),
             citation_id = citation_offset + i + 1,
         ))
+
+    research_log.emit(
+        "search",
+        f"Fetched {len(results)} page(s) for \"{query[:50]}{'...' if len(query) > 50 else ''}\"",
+        duration_ms=_elapsed,
+        details={"query": query, "results": len(results), "sources": source_urls},
+    )
 
     log.info(f"[WEB] Tavily returned {len(results)} result(s)")
     return results
@@ -139,6 +152,10 @@ def tavily_search_multi(
             except Exception as e:
                 idx = futures[future]
                 log.warning(f"[WEB] Query {idx + 1} failed: {e}")
+                research_log.emit(
+                    "search", f"Query {idx + 1} failed: {e}",
+                    level="error",
+                )
 
     log.info(f"[WEB] Multi-search: {len(planned_queries)} queries → {len(all_results)} total results")
     return all_results

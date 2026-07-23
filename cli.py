@@ -5,12 +5,14 @@ Command-line interface for the Research Agent.
 Commands:
     python cli.py ingest <path>    — Ingest a file or directory
     python cli.py ask "<question>" — Ask a research question
+    python cli.py explain <N>      — Show full evidence for citation [N]
     python cli.py status           — Show index status
     python cli.py clear            — Clear the entire index
 """
 
 import argparse
 import json
+import os
 import re
 import sys
 import textwrap
@@ -64,6 +66,81 @@ def _strip_synthesis(text: str) -> str:
         text,
         flags=re.DOTALL,
     ).rstrip()
+
+
+# Detail keys that are rendered as numbered sub-items rather than raw values.
+_LIST_DETAIL_KEYS = {"queries", "sources"}
+
+
+def _render_research_log(events: list[dict]) -> None:
+    """Render the pipeline event log as a human-readable nested tree."""
+    print("\n\u2500\u2500 Research Log \u2500\u2500")
+
+    for ev in events:
+        ts = ev["timestamp"]
+        phase = ev["phase"]
+        msg = ev["message"]
+        dur = ev.get("duration_ms")
+        details = ev.get("details", {}) or {}
+        level = ev.get("level", "info")
+
+        # Status icon
+        icon = "[!]" if level == "error" else "[~]" if level == "warn" else "[+]"
+
+        # Duration badge
+        dur_str = f"  ({dur:.0f}ms)" if dur is not None else ""
+
+        # Phase tag — fixed width for alignment
+        phase_tag = f"[{phase}]"
+
+        print(f"  {ts}  {icon} {phase_tag:<14} {msg}{dur_str}")
+
+        # Render details
+        for key, val in details.items():
+            if isinstance(val, list) and key in _LIST_DETAIL_KEYS:
+                for i, item in enumerate(val, 1):
+                    if isinstance(item, dict) and "query" in item:
+                        print(f"          |  {i}. {item['query']}")
+                        if "purpose" in item:
+                            print(f"          |     -> {item['purpose']}")
+                    else:
+                        print(f"          |  {i}. {item}")
+            elif key not in ("question",):  # skip echoing the question back
+                print(f"          |  {key}: {val}")
+
+    print()
+
+
+def _show_evidence(citations: list, citation_id: int) -> None:
+    """Display the full evidence chunk for a specific citation ID."""
+    match = None
+    for c in citations:
+        if c.citation_id == citation_id:
+            match = c
+            break
+
+    if match is None:
+        print(f"\n[ERR] Citation [{citation_id}] not found.")
+        return
+
+    print(f"\n── Evidence for [{citation_id}] ──")
+    print(f"  Source:  {match.source}")
+    print(f"  Type:    {match.source_type}")
+    print()
+
+    # Show full text if available, otherwise preview
+    text = match.full_text if match.full_text else match.chunk_preview
+    print(text)
+    print()
+
+
+def _generate_export_path(base_name: str, fmt: str, export_dir: str = ".") -> str:
+    """Generate a timestamped export file path."""
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = re.sub(r"[^\w\s-]", "", base_name)[:40].strip().replace(" ", "_")
+    filename = f"research_{slug}_{ts}.{fmt}"
+    return os.path.join(export_dir, filename)
 
 
 def cmd_ask(args):
@@ -162,9 +239,45 @@ def cmd_ask(args):
         print(f"  Model:           {answer.metrics.get('model', 'N/A')}")
         print(f"  Provider:        {answer.metrics.get('provider', 'N/A')}")
 
+    # Show the detailed research log if --verbose was passed
+    if args.verbose:
+        event_log = answer.metrics.get("event_log", [])
+        if event_log:
+            _render_research_log(event_log)
+
+    # Export to Markdown and/or PDF (optional)
+    if args.export:
+        from services.exporter import export_markdown, export_pdf
+        export_dir = getattr(args, "export_dir", ".") or "."
+        base_name = args.question
+
+        for fmt in args.export:
+            if args.export_file:
+                path = args.export_file
+                if not path.endswith(f".{fmt}"):
+                    path = f"{path}.{fmt}"
+            else:
+                path = _generate_export_path(base_name, fmt, export_dir)
+
+            try:
+                if fmt == "md":
+                    saved = export_markdown(answer, all_citations, path)
+                elif fmt == "pdf":
+                    saved = export_pdf(answer, all_citations, path)
+                else:
+                    print(f"[ERR] Unknown export format: {fmt}")
+                    continue
+                print(f"  [EXPORT] Saved {fmt.upper()}: {saved}")
+            except ImportError as e:
+                print(f"  [ERR] Export failed: {e}")
+            except Exception as e:
+                print(f"  [ERR] Export failed: {e}")
+
     # Output JSON if requested
     if args.json:
         print(f"\n-- JSON Output --")
+        # Exclude event_log from metrics to keep JSON clean
+        clean_metrics = {k: v for k, v in answer.metrics.items() if k != "event_log"}
         output = {
             "question": answer.question,
             "answer": display_answer,
@@ -180,7 +293,8 @@ def cmd_ask(args):
             "confidence": answer.confidence,
             "chunks_retrieved": answer.chunks_retrieved,
             "chunks_cited": unique_cited,
-            "metrics": answer.metrics,
+            "metrics": clean_metrics,
+            "event_log": answer.metrics.get("event_log", []),
         }
         print(json.dumps(output, indent=2))
 
@@ -217,6 +331,57 @@ def cmd_clear(args):
     print("[DEL]  Index cleared successfully.")
 
 
+def cmd_explain(args):
+    """Show the full evidence chunk for a citation from the last research answer."""
+    from services.generator import load_last_answer
+
+    last = load_last_answer()
+    if last is None:
+        print("[ERR] No previous research found.")
+        print("   Run: python cli.py ask \"<question>\" first.")
+        sys.exit(1)
+
+    citation_id = args.citation_id
+
+    # Find the matching citation
+    match = None
+    for c in last.citations:
+        if c.citation_id == citation_id:
+            match = c
+            break
+
+    if match is None:
+        available = sorted(c.citation_id for c in last.citations)
+        print(f"[ERR] Citation [{citation_id}] not found.")
+        print(f"   Available IDs: {available}")
+        print(f"   From: \"{last.question}\"")
+        sys.exit(1)
+
+    print(f"\n── Evidence for [{citation_id}] ──")
+    print(f"  Question: \"{last.question}\"")
+    print(f"  Source:    {match.source}")
+    print(f"  Type:      {match.source_type}")
+    print()
+
+    # Show full text if available, otherwise preview
+    text = match.full_text if match.full_text else match.chunk_preview
+    print(text)
+    print()
+
+    # Also show which parts of the answer cite this ID
+    import re
+    sentences = re.split(r'(?<=[.!?])\s+', last.answer)
+    relevant = [s.strip() for s in sentences if f"[{citation_id}]" in s or f"[{citation_id}," in s or f", {citation_id}]" in s or f", {citation_id}," in s]
+    if relevant:
+        print(f"── Cited in ──")
+        for s in relevant:
+            # Clean up markdown headings for display
+            clean = s.lstrip("#").strip()
+            if clean:
+                print(f"  ...{clean}")
+        print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="research-agent",
@@ -244,6 +409,25 @@ def main():
         "--hide-plan", action="store_true",
         help="Hide the research plan from the output (shown by default)",
     )
+    ask_parser.add_argument(
+        "--verbose", action="store_true",
+        help="Show a detailed timestamped log of every pipeline step",
+    )
+    ask_parser.add_argument(
+        "--export", nargs="+", choices=["md", "pdf"],
+        metavar="FORMAT",
+        help="Export the answer to Markdown and/or PDF (e.g. --export md pdf)",
+    )
+    ask_parser.add_argument(
+        "--export-file", type=str, default=None,
+        metavar="PATH",
+        help="Custom output filename for export (default: auto-generated)",
+    )
+    ask_parser.add_argument(
+        "--export-dir", type=str, default=".",
+        metavar="DIR",
+        help="Directory for exported files (default: current directory)",
+    )
     ask_parser.set_defaults(func=cmd_ask)
 
     # status
@@ -253,6 +437,17 @@ def main():
     # clear
     clear_parser = subparsers.add_parser("clear", help="Clear the document index")
     clear_parser.set_defaults(func=cmd_clear)
+
+    # explain
+    explain_parser = subparsers.add_parser(
+        "explain",
+        help="Show full evidence for a citation from the last research answer",
+    )
+    explain_parser.add_argument(
+        "citation_id", type=int, metavar="N",
+        help="The citation ID to explain (e.g. 3 for [3])",
+    )
+    explain_parser.set_defaults(func=cmd_explain)
 
     args = parser.parse_args()
 
