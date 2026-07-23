@@ -33,16 +33,32 @@ class ResearchLog:
         research_log.reset()          # at the start of a query
         research_log.emit(...)        # at each stage
         events = research_log.events  # at the end
+
+    Subscriber support (for WebSocket streaming):
+        research_log.subscribe(callback)   # callback(event_dict) called on every emit
+        research_log.unsubscribe(callback)
     """
 
     def __init__(self) -> None:
         self._events: list[PipelineEvent] = []
         self._t0: float | None = None
+        self._subscribers: list = []
 
     def reset(self) -> None:
         """Clear events and restart the wall-clock timer."""
         self._events.clear()
         self._t0 = time.time()
+
+    def subscribe(self, callback) -> None:
+        """Register a callback invoked on every emit(event_dict)."""
+        self._subscribers.append(callback)
+
+    def unsubscribe(self, callback) -> None:
+        """Remove a previously registered callback."""
+        try:
+            self._subscribers.remove(callback)
+        except ValueError:
+            pass
 
     def emit(
         self,
@@ -52,8 +68,8 @@ class ResearchLog:
         details: dict | None = None,
         level: str = "info",
     ) -> None:
-        """Record a pipeline event."""
-        self._events.append(PipelineEvent(
+        """Record a pipeline event and notify subscribers."""
+        event = PipelineEvent(
             timestamp=datetime.now().strftime("%H:%M:%S.") +
                       f"{datetime.now().microsecond // 1000:03d}",
             phase=phase,
@@ -61,7 +77,22 @@ class ResearchLog:
             duration_ms=duration_ms,
             details=details or {},
             level=level,
-        ))
+        )
+        self._events.append(event)
+        # Notify subscribers with a serializable copy
+        event_dict = {
+            "timestamp": event.timestamp,
+            "phase": event.phase,
+            "message": event.message,
+            "duration_ms": event.duration_ms,
+            "details": event.details,
+            "level": event.level,
+        }
+        for cb in list(self._subscribers):
+            try:
+                cb(event_dict)
+            except Exception:
+                pass
 
     @property
     def events(self) -> list[PipelineEvent]:

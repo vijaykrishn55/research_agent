@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Research Agent</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+<style>
+/* ===== Reset & Variables ===== */
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#F0E6DB;--bg-dark:#E8DCCC;
+  --surface:#FFF8F0;--surface-alt:#F5EDE3;
+  --pri:#B8A9E8;--pri-lt:#D4C9F5;--pri-dk:#9B8AD4;
+  --acc:#F4A07A;--acc-lt:#F8C4A4;
+  --ok:#7ECBA1;--ok-lt:#B5E8C9;
+  --warn:#F4D06F;--err:#F08080;
+  --txt:#3D3456;--txt2:#7A6E8A;--txt3:#A99BBA;
+  --brd:rgba(61,52,86,.08);
+  --r-lg:22px;--r-md:14px;--r-sm:10px;--r-xs:6px;
+  --sh-out:5px 5px 15px rgba(174,158,138,.25),-4px -4px 12px rgba(255,255,255,.72);
+  --sh-in:inset 3px 3px 7px rgba(174,158,138,.18),inset -3px -3px 7px rgba(255,255,255,.65);
+  --sh-up:3px 3px 10px rgba(174,158,138,.28),-2px -2px 8px rgba(255,255,255,.7);
+}
+html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--txt);overflow:hidden;-webkit-font-smoothing:antialiased}
+
+/* ===== Scrollbar (hidden but functional) ===== */
+::-webkit-scrollbar{width:0;height:0}
+*{scrollbar-width:none;-ms-overflow-style:none}
+
+/* ===== Layout ===== */
+.app{display:flex;flex-direction:column;height:100vh}
+.header{background:var(--surface);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 3px 14px rgba(174,158,138,.15),0 -1px 6px rgba(255,255,255,.5);z-index:100;flex-shrink:0}
+.header h1{font-size:1.18rem;font-weight:700;letter-spacing:-.3px}
+.header h1 i{color:var(--pri-dk);font-style:normal}
+.main{display:flex;flex:1;overflow:hidden}
+
+/* ===== Sidebar ===== */
+.sidebar{width:270px;min-width:270px;background:var(--surface-alt);padding:16px 14px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;box-shadow:3px 0 18px rgba(174,158,138,.12),-1px 0 8px rgba(255,255,255,.45);z-index:50}
+.panel{background:var(--surface);border-radius:var(--r-lg);padding:14px;box-shadow:var(--sh-out)}
+.panel h3{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--txt2);margin-bottom:10px}
+
+/* Dropzone */
+.drop{border:2.5px dashed var(--pri-lt);border-radius:var(--r-md);padding:22px 12px;text-align:center;cursor:pointer;transition:all .22s;background:var(--surface);box-shadow:var(--sh-in)}
+.drop:hover,.drop.over{border-color:var(--pri);background:rgba(184,169,232,.12)}
+.drop.over{box-shadow:var(--sh-in),0 0 0 4px rgba(184,169,232,.15)}
+.drop-ico{font-size:1.8rem;margin-bottom:4px}
+.drop-txt{font-size:.78rem;color:var(--txt2);line-height:1.5}
+.drop-txt b{color:var(--pri-dk)}
+.upload-bar{margin-top:8px;height:5px;background:var(--bg-dark);border-radius:3px;overflow:hidden;box-shadow:inset 1px 1px 3px rgba(0,0,0,.08);display:none}
+.upload-bar.on{display:block}
+.upload-fill{height:100%;background:linear-gradient(90deg,var(--pri),var(--acc));border-radius:3px;transition:width .35s;width:0%}
+.upload-lbl{font-size:.7rem;color:var(--txt3);margin-top:3px;text-align:center}
+
+/* Index stats */
+.stats{display:flex;flex-direction:column;gap:6px}
+.stat{display:flex;justify-content:space-between;align-items:center;font-size:.8rem}
+.stat .l{color:var(--txt2)}
+.stat .v{font-weight:600;background:var(--surface-alt);padding:2px 9px;border-radius:16px;box-shadow:1px 1px 4px rgba(0,0,0,.05),-1px -1px 3px rgba(255,255,255,.75);font-size:.76rem;transition:all .3s}
+.stat .v.pulse{animation:valPulse .4s ease}
+.clr-btn{margin-top:6px;width:100%;padding:7px;border:none;border-radius:var(--r-sm);background:var(--surface-alt);color:var(--err);font-size:.74rem;font-weight:600;cursor:pointer;box-shadow:var(--sh-up);transition:all .2s}
+.clr-btn:hover{box-shadow:var(--sh-in);color:#d44;transform:scale(.98)}
+
+/* Mode selector */
+.modes{display:flex;flex-direction:column;gap:5px}
+.mode{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:var(--r-sm);cursor:pointer;transition:all .2s;background:var(--surface-alt);box-shadow:1px 1px 3px rgba(0,0,0,.03)}
+.mode:hover{background:rgba(184,169,232,.1)}
+.mode.on{background:var(--pri-lt);box-shadow:var(--sh-in),0 0 0 2px var(--pri)}
+.mode-dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--pri);position:relative;flex-shrink:0;transition:all .2s}
+.mode.on .mode-dot::after{content:'';position:absolute;top:3px;left:3px;width:6px;height:6px;border-radius:50%;background:var(--pri-dk);animation:dotPop .25s ease}
+.mode-nm{font-size:.78rem;font-weight:600}
+.mode-ds{font-size:.66rem;color:var(--txt3)}
+
+/* Export */
+.exp-btns{display:flex;gap:7px}
+.exp-btn{flex:1;padding:9px 6px;border:none;border-radius:var(--r-sm);font-size:.74rem;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:var(--sh-up);background:var(--surface-alt);color:var(--txt2)}
+.exp-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:3px 3px 10px rgba(174,158,138,.32),-2px -2px 8px rgba(255,255,255,.75);color:var(--pri-dk)}
+.exp-btn:active:not(:disabled){box-shadow:var(--sh-in);transform:translateY(0)}
+.exp-btn:disabled{opacity:.4;cursor:not-allowed}
+.hdr-btn{padding:8px 16px;border:none;border-radius:20px;background:var(--surface-alt);color:var(--txt2);font-size:.8rem;font-weight:600;cursor:pointer;box-shadow:var(--sh-up);transition:all .2s}
+.hdr-btn:hover{transform:translateY(-1px);box-shadow:3px 3px 10px rgba(174,158,138,.3),-2px -2px 7px rgba(255,255,255,.7);color:var(--pri-dk)}
+.hdr-btn:active{box-shadow:var(--sh-in);transform:translateY(0)}
+.hdr-btn.accent{background:var(--pri-lt);color:var(--pri-dk)}
+.hdr-btn.accent:hover{background:var(--pri);color:#fff}
+
+/* ===== Chat area ===== */
+.chat{flex:1;display:flex;flex-direction:column;overflow:hidden;padding:16px 24px 10px}
+.msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-bottom:10px}
+
+/* Welcome */
+.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;gap:20px;padding:30px 16px}
+.welcome-ico{font-size:3rem;animation:float 3s ease-in-out infinite}
+.welcome h2{font-size:1.3rem;font-weight:700}
+.welcome p{color:var(--txt2);font-size:.86rem;max-width:400px;line-height:1.65}
+.chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.chip{padding:9px 16px;border:none;border-radius:24px;background:var(--surface);box-shadow:var(--sh-up);font-size:.78rem;color:var(--txt);cursor:pointer;transition:all .2s}
+.chip:hover{transform:translateY(-2px);box-shadow:4px 4px 12px rgba(174,158,138,.3),-3px -3px 10px rgba(255,255,255,.75);color:var(--pri-dk)}
+.chip:active{box-shadow:var(--sh-in);transform:translateY(0)}
+
+/* Messages */
+.msg{animation:slideUp .3s ease-out;max-width:85%}
+.msg.user{align-self:flex-end}
+.msg.user .bbl{background:var(--pri-lt);padding:12px 18px;border-radius:22px 22px 5px 22px;box-shadow:3px 3px 10px rgba(174,158,138,.2),-2px -2px 7px rgba(255,255,255,.55);font-size:.88rem;line-height:1.5;word-break:break-word}
+.msg.bot{align-self:flex-start;max-width:92%}
+.msg.bot .bbl{background:var(--surface);padding:18px 22px;border-radius:5px 22px 22px 22px;box-shadow:var(--sh-out);font-size:.88rem}
+
+/* Markdown in bubble */
+.bbl h1,.bbl h2,.bbl h3{color:var(--txt);margin:12px 0 6px;line-height:1.3}
+.bbl h2{font-size:1.05rem}.bbl h3{font-size:.94rem}
+.bbl p{margin:6px 0}.bbl ul,.bbl ol{margin:6px 0;padding-left:20px}.bbl li{margin:3px 0}
+.bbl code{background:var(--surface-alt);padding:1px 5px;border-radius:4px;font-size:.83em;box-shadow:inset 1px 1px 3px rgba(0,0,0,.05)}
+.bbl pre{background:var(--surface-alt);padding:12px;border-radius:var(--r-sm);overflow-x:auto;margin:8px 0;box-shadow:var(--sh-in)}
+.bbl pre code{background:none;padding:0;box-shadow:none}
+.bbl blockquote{border-left:3px solid var(--pri);padding:5px 12px;margin:8px 0;background:var(--surface-alt);border-radius:0 var(--r-xs) var(--r-xs) 0;color:var(--txt2);font-size:.85rem}
+.bbl a{color:var(--pri-dk);text-decoration:none;border-bottom:1px dotted var(--pri)}
+.bbl a:hover{border-bottom-style:solid}
+.bbl table{border-collapse:collapse;width:100%;margin:8px 0}
+.bbl th,.bbl td{border:1px solid var(--brd);padding:5px 8px;font-size:.82rem}
+.bbl th{background:var(--surface-alt);font-weight:600}
+
+/* Citation badges */
+.cite{display:inline-flex;align-items:center;justify-content:center;min-width:21px;height:21px;padding:0 5px;border-radius:11px;background:var(--acc);color:#fff;font-size:.68rem;font-weight:700;cursor:pointer;box-shadow:1px 1px 4px rgba(244,160,122,.3);transition:all .18s;text-decoration:none;border:none;vertical-align:middle;position:relative;top:-1px;margin:0 1px}
+.cite:hover{background:var(--acc-lt);transform:scale(1.18);box-shadow:2px 2px 8px rgba(244,160,122,.4)}
+.cite.on{background:var(--pri-dk);box-shadow:0 0 0 3px rgba(155,138,212,.28)}
+
+/* Research progress */
+.rp{margin-bottom:10px}
+.rp-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.dots{display:flex;gap:4px}
+.dots span{width:6px;height:6px;border-radius:50%;background:var(--pri);animation:bounce 1.2s ease-in-out infinite}
+.dots span:nth-child(2){animation-delay:.2s}
+.dots span:nth-child(3){animation-delay:.4s}
+.rp-lbl{font-size:.84rem;font-weight:600;color:var(--pri-dk)}
+.steps{display:flex;flex-direction:column;gap:5px}
+.step{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface-alt);border-radius:var(--r-sm);box-shadow:var(--sh-in);animation:slideUp .22s ease-out;font-size:.78rem}
+.step-ico{font-size:.92rem;flex-shrink:0}
+.step-txt{flex:1;color:var(--txt)}
+.step-dur{font-size:.68rem;color:var(--txt3);background:var(--surface);padding:2px 7px;border-radius:8px;box-shadow:1px 1px 3px rgba(0,0,0,.04);white-space:nowrap}
+.rp-ok{padding:8px 12px;background:var(--ok-lt);border-radius:var(--r-sm);box-shadow:var(--sh-in);font-size:.78rem;color:#2d6a4f;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+
+/* Evidence card */
+.evc{margin-top:12px;background:var(--surface-alt);border-radius:var(--r-md);box-shadow:var(--sh-in);overflow:hidden;animation:slideUp .22s ease-out;border-left:3px solid var(--pri)}
+.evc-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(184,169,232,.08);border-bottom:1px solid var(--brd)}
+.evc-ttl{font-size:.82rem;font-weight:700;color:var(--pri-dk)}
+.evc-x{width:24px;height:24px;border:none;border-radius:50%;background:var(--surface);box-shadow:1px 1px 3px rgba(0,0,0,.06);cursor:pointer;font-size:.8rem;display:flex;align-items:center;justify-content:center;transition:all .15s;color:var(--txt3)}
+.evc-x:hover{background:var(--err);color:#fff}
+.evc-body{padding:14px}
+.evc-txt{font-size:.82rem;line-height:1.65;color:var(--txt);background:var(--surface);padding:12px;border-radius:var(--r-sm);box-shadow:inset 1px 1px 3px rgba(0,0,0,.04);margin-bottom:8px;max-height:220px;overflow-y:auto}
+.evc-src{font-size:.74rem;color:var(--txt3)}
+.evc-src a{color:var(--pri-dk);text-decoration:none}
+
+/* Download bar */
+.dl-bar{display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--brd)}
+.dl-btn{padding:9px 18px;border:none;border-radius:24px;font-size:.78rem;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:var(--sh-up)}
+.dl-btn.md{background:var(--surface-alt);color:var(--pri-dk)}
+.dl-btn.pdf{background:var(--surface-alt);color:var(--acc)}
+.dl-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:3px 3px 10px rgba(174,158,138,.32),-2px -2px 8px rgba(255,255,255,.75)}
+.dl-btn:active{box-shadow:var(--sh-in);transform:translateY(0)}
+.dl-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* Metrics */
+.metrics{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px solid var(--brd)}
+.met{font-size:.68rem;color:var(--txt3);background:var(--surface-alt);padding:3px 9px;border-radius:10px;box-shadow:1px 1px 2px rgba(0,0,0,.04)}
+.met b{color:var(--txt2)}
+
+/* Error */
+.err-bbl{background:#FFF0F0;border-left:3px solid var(--err);padding:12px 16px;border-radius:0 var(--r-md) var(--r-md) 0;box-shadow:var(--sh-out);font-size:.84rem;color:#8B0000}
+
+/* Input bar */
+.inbar{display:flex;gap:10px;padding:12px 0 2px;flex-shrink:0}
+.inbar input{flex:1;padding:13px 20px;border:none;border-radius:26px;background:var(--surface);box-shadow:var(--sh-in);font-size:.88rem;color:var(--txt);outline:none;transition:box-shadow .2s}
+.inbar input:focus{box-shadow:var(--sh-in),0 0 0 3px rgba(184,169,232,.22)}
+.inbar input::placeholder{color:var(--txt3)}
+.send{width:46px;height:46px;border:none;border-radius:50%;background:var(--pri);color:#fff;font-size:1.1rem;cursor:pointer;box-shadow:var(--sh-up);transition:all .2s;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.send:hover:not(:disabled){background:var(--pri-dk);transform:translateY(-2px);box-shadow:3px 3px 10px rgba(155,138,212,.35),-2px -2px 7px rgba(255,255,255,.55)}
+.send:active:not(:disabled){box-shadow:var(--sh-in);transform:translateY(0)}
+.send:disabled{opacity:.35;cursor:not-allowed}
+
+/* ===== Settings Modal ===== */
+.overlay{display:none;position:fixed;inset:0;background:rgba(61,52,86,.3);backdrop-filter:blur(3px);z-index:1000;align-items:center;justify-content:center}
+.overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:var(--r-lg);box-shadow:8px 8px 28px rgba(174,158,138,.35),-5px -5px 18px rgba(255,255,255,.65);padding:26px;width:500px;max-width:92vw;max-height:85vh;overflow-y:auto;animation:slideUp .25s ease-out}
+.modal h2{font-size:1.05rem;margin-bottom:16px}
+.modal-tabs{display:flex;gap:4px;margin-bottom:16px}
+.modal-tab{padding:7px 14px;border:none;border-radius:16px;background:var(--surface-alt);font-size:.78rem;font-weight:600;color:var(--txt2);cursor:pointer;transition:all .2s;box-shadow:1px 1px 3px rgba(0,0,0,.04)}
+.modal-tab:hover{color:var(--pri-dk)}
+.modal-tab.on{background:var(--pri-lt);color:var(--pri-dk);box-shadow:var(--sh-in)}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:.74rem;font-weight:600;color:var(--txt2);margin-bottom:4px}
+.field input,.field select{width:100%;padding:9px 12px;border:none;border-radius:var(--r-sm);background:var(--surface-alt);box-shadow:var(--sh-in);font-size:.84rem;color:var(--txt);outline:none;transition:box-shadow .2s}
+.field input:focus,.field select:focus{box-shadow:var(--sh-in),0 0 0 2px rgba(184,169,232,.25)}
+.field .hint{font-size:.68rem;color:var(--txt3);margin-top:3px}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.modal-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid var(--brd)}
+.mbtn{padding:9px 20px;border:none;border-radius:18px;font-size:.82rem;font-weight:600;cursor:pointer;box-shadow:var(--sh-up);transition:all .2s}
+.mbtn:hover{transform:translateY(-1px)}
+.mbtn:active{box-shadow:var(--sh-in);transform:translateY(0)}
+.mbtn.p{background:var(--pri);color:#fff}
+.mbtn.s{background:var(--surface-alt);color:var(--txt2)}
+.sgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.sitem{padding:9px;background:var(--surface-alt);border-radius:var(--r-sm);box-shadow:var(--sh-in)}
+.sitem .l{font-size:.68rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.4px}
+.sitem .v{font-size:.84rem;font-weight:600;margin-top:1px}
+
+/* Toast */
+.toasts{position:fixed;bottom:20px;right:20px;z-index:2000;display:flex;flex-direction:column;gap:6px}
+.toast{padding:10px 18px;border-radius:var(--r-md);background:var(--surface);box-shadow:4px 4px 14px rgba(174,158,138,.3),-2px -2px 8px rgba(255,255,255,.55);font-size:.82rem;animation:slideUp .22s ease-out;max-width:300px;transition:all .3s}
+.toast.ok{border-left:3px solid var(--ok);color:#2d6a4f}
+.toast.err{border-left:3px solid var(--err);color:#8B0000}
+.toast.info{border-left:3px solid var(--pri);color:var(--pri-dk)}
+.toast.out{opacity:0;transform:translateY(8px)}
+
+/* Animations */
+@keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes bounce{0%,80%,100%{transform:translateY(0);opacity:.35}40%{transform:translateY(-5px);opacity:1}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes dotPop{from{transform:scale(0)}to{transform:scale(1)}}
+@keyframes valPulse{0%{transform:scale(1)}50%{transform:scale(1.12);background:var(--pri-lt)}100%{transform:scale(1)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const API = window.location.origin;
+const WS  = 'ws://' + window.location.host;
+const PHASE_ICONS = { pipeline:'\u2699', planner:'\uD83D\uDCCB', search:'\uD83D\uDD0D', retrieval:'\uD83D\uDCDA', generation:'\u270D' };
+const MODES = [
+  { id:'local',  name:'Local',  desc:'Search uploaded docs' },
+  { id:'web',    name:'Web',    desc:'Search via Tavily' },
+  { id:'hybrid', name:'Hybrid', desc:'Combine local + web' },
+  { id:'auto',   name:'Auto',   desc:'Smart fallback' },
+];
+
+function escHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function renderMd(text){
+  if(!text) return '';
+  /* Strip markdown reference-link definitions: [ref-1]: https://... */
+  var processed = text.replace(/^\s*\[ref-\d+\]:\s*\S+\s*$/gm, '');
+  /* Strip orphaned [ref-N] labels (not valid link references on their own) */
+  processed = processed.replace(/\[ref-\d+\]/g, '');
+  /* Strip the --- separator and "Sources" / "References" heading the LLM appends before ref links */
+  processed = processed.replace(/\n---\s*\n\s*(?:#{1,3}\s*(?:Sources|References|Citations)[^\n]*\s*)?$/i, '');
+  /* Convert [N] and [N, M] citation tags to clickable badges */
+  processed = processed.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, function(_, inner){
+    return inner.split(',').map(function(s){return s.trim()}).map(function(id){
+      return '<span class="cite" data-cid="'+id+'">'+id+'</span>';
+    }).join('');
+  });
+  if(typeof marked!=='undefined' && typeof DOMPurify!=='undefined'){
+    return DOMPurify.sanitize(marked.parse(processed),{ADD_TAGS:['span'],ADD_ATTR:['data-cid','class']});
+  }
+  return processed.replace(/\n/g,'<br>');
+}
+
+async function apiGet(p){ var r=await fetch(API+p); if(!r.ok) throw new Error(r.statusText); return r.json(); }
+async function apiPut(p,b){ var r=await fetch(API+p,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); if(!r.ok) throw new Error(r.statusText); return r.json(); }
+async function apiDel(p){ var r=await fetch(API+p,{method:'DELETE'}); if(!r.ok) throw new Error(r.statusText); return r.json(); }
+
+/* ===== Toast Hook ===== */
+function useToast(){
+  var ref = useRef([]);
+  var _s = useState([]); var items=_s[0]; var setItems=_s[1];
+  var show = useCallback(function(msg,type){
+    type = type || 'info';
+    var id = Date.now() + Math.random();
+    setItems(function(p){ return p.concat([{id:id,msg:msg,type:type}]); });
+    setTimeout(function(){ setItems(function(p){ return p.filter(function(t){return t.id!==id;}); }); }, 3500);
+  },[]);
+  var ToastUI = function(){
+    return React.createElement('div',{className:'toasts'},
+      items.map(function(t){ return React.createElement('div',{key:t.id,className:'toast '+t.type}, t.msg); })
+    );
+  };
+  return [show, ToastUI];
+}
+
+/* ===== App ===== */
+function App(){
+  var _mode = useState('local'); var mode=_mode[0]; var setMode=_mode[1];
+  var _msgs = useState([]); var msgs=_msgs[0]; var setMsgs=_msgs[1];
+  var _busy = useState(false); var busy=_busy[0]; var setBusy=_busy[1];
+  var _cits = useState([]); var citations=_cits[0]; var setCitations=_cits[1];
+  var _hr = useState(false); var hasResult=_hr[0]; var setHasResult=_hr[1];
+  var _st = useState({total_chunks:0,total_vectors:0,ingested_files:[],llm_model:'--',llm_provider:'--',embedding_model:'--'});
+  var status=_st[0]; var setStatus=_st[1];
+  var _se = useState(null); var settings=_se[0]; var setSettings=_se[1];
+  var _so = useState(false); var settingsOpen=_so[0]; var setSettingsOpen=_so[1];
+  var _up = useState(0); var uploadPct=_up[0]; var setUploadPct=_up[1];
+  var _ug = useState(false); var uploading=_ug[0]; var setUploading=_ug[1];
+  var _um = useState(''); var uploadMsg=_um[0]; var setUploadMsg=_um[1];
+  var msgsRef = useRef(null);
+  var busyRef = useRef(false);
+  var toastArr = useToast(); var toast=toastArr[0]; var ToastUI=toastArr[1];
+
+  busyRef.current = busy;
+
+  useEffect(function(){ if(msgsRef.current) msgsRef.current.scrollTop=msgsRef.current.scrollHeight; },[msgs]);
+
+  /* Poll status */
+  var refreshStatus = useCallback(function(){
+    apiGet('/api/research/status').then(function(d){ setStatus(d); }).catch(function(){});
+  },[]);
+  useEffect(function(){
+    refreshStatus();
+    var iv=setInterval(refreshStatus,3000);
+    return function(){ clearInterval(iv); };
+  },[refreshStatus]);
+
+  var fetchSettings = useCallback(function(){
+    apiGet('/api/settings').then(function(d){ setSettings(d); }).catch(function(){});
+  },[]);
+
+  /* Upload */
+  var uploadFiles = useCallback(function(files){
+    if(!files||!files.length) return;
+    var fd=new FormData();
+    for(var i=0;i<files.length;i++) fd.append('files',files[i]);
+    setUploading(true); setUploadPct(30); setUploadMsg('Uploading '+files.length+' file(s)...');
+    fetch(API+'/api/documents/upload',{method:'POST',body:fd}).then(function(r){
+      if(!r.ok) throw new Error('Upload failed');
+      return r.json();
+    }).then(function(res){
+      setUploadPct(100);
+      var ok=res.filter(function(x){return x.status==='ingested'}).length;
+      var sk=res.filter(function(x){return x.status==='skipped'}).length;
+      setUploadMsg(ok+' ingested, '+sk+' skipped');
+      toast(ok+' file(s) ingested','ok');
+    }).catch(function(e){
+      setUploadMsg('Upload failed'); toast('Upload failed','err'); setUploadPct(0);
+    });
+    setTimeout(function(){ setUploading(false); setUploadPct(0); },3000);
+  },[toast]);
+
+  var onDrop = useCallback(function(e){ e.preventDefault(); uploadFiles(e.dataTransfer.files); },[uploadFiles]);
+  var onFileSelect = useCallback(function(e){ uploadFiles(e.target.files); e.target.value=''; },[uploadFiles]);
+
+  /* Send */
+  var send = useCallback(function(question){
+    if(!question||question.length<3||busyRef.current) return;
+    setMsgs(function(p){ return p.concat([{role:'user',text:question}]); });
+    setBusy(true);
+    setMsgs(function(p){ return p.concat([{role:'bot',kind:'progress',steps:[],done:false,error:null,result:null,evidence:{}}]); });
+
+    var ws = new WebSocket(WS+'/ws/research');
+    ws.onopen = function(){ ws.send(JSON.stringify({question:question,mode:mode})); };
+    ws.onmessage = function(ev){
+      var m=JSON.parse(ev.data);
+      setMsgs(function(prev){
+        var next=prev.slice();
+        var last=Object.assign({},next[next.length-1]);
+        if(m.type==='event'){ last.steps=last.steps.concat([m.data]); }
+        else if(m.type==='result'){ last.done=true; last.result=m.data; }
+        else if(m.type==='error'){ last.done=true; last.error=m.message; }
+        else if(m.type==='done'){ last.done=true; }
+        next[next.length-1]=last;
+        return next;
+      });
+      if(m.type==='result'){ setCitations(m.data.citations||[]); setHasResult(true); setBusy(false); }
+      if(m.type==='error'){ toast(m.message,'err'); setBusy(false); }
+      if(m.type==='done'){ setBusy(false); }
+    };
+    ws.onerror = function(){ toast('Connection error','err'); setBusy(false); };
+    ws.onclose = function(){ if(busyRef.current) setBusy(false); };
+  },[mode,toast]);
+
+  /* Evidence */
+  var onCite = useCallback(function(cid,msgIdx){
+    var ev = citations.find(function(c){return c.citation_id===cid});
+    var doSet = function(evidence){
+      setMsgs(function(prev){
+        var next=prev.slice();
+        var msg=Object.assign({},next[msgIdx]);
+        var evid=Object.assign({},msg.evidence||{});
+        evid[cid] = evid[cid] ? null : evidence;
+        msg.evidence=evid;
+        next[msgIdx]=msg;
+        return next;
+      });
+    };
+    if(ev && ev.full_text){ doSet(ev); }
+    else {
+      apiGet('/api/research/evidence/'+cid).then(function(d){ doSet(d); }).catch(function(){ toast('Citation ['+cid+'] not found','err'); });
+    }
+  },[citations,toast]);
+
+  /* Export */
+  var doExport = useCallback(function(fmt){
+    if(!hasResult){ toast('No research to export','info'); return; }
+    fetch(API+'/api/research/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({format:fmt})})
+    .then(function(r){ if(!r.ok) return r.json().then(function(j){throw new Error(j.detail||'Failed')}); return r; })
+    .then(function(r){ return r.blob(); })
+    .then(function(blob){
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a'); a.href=url; a.download='research.'+(fmt==='md'?'md':'pdf');
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      toast('Exported as '+fmt.toUpperCase(),'ok');
+    }).catch(function(e){ toast('Export: '+e.message,'err'); });
+  },[hasResult,toast]);
+
+  /* Clear */
+  var clearIdx = useCallback(function(){
+    if(!confirm('Clear entire document index?')) return;
+    apiDel('/api/documents').then(function(){ toast('Index cleared','ok'); }).catch(function(e){ toast('Clear failed','err'); });
+  },[toast]);
+
+  /* Save settings */
+  var saveSettings = useCallback(function(data){
+    apiPut('/api/settings',data).then(function(r){ toast('Settings updated ('+r.updated.length+')','ok'); fetchSettings(); setSettingsOpen(false); }).catch(function(e){ toast('Save failed: '+e.message,'err'); });
+  },[toast,fetchSettings]);
+
+  /* New chat */
+  var newChat = useCallback(function(){
+    setMsgs([]); setCitations([]); setHasResult(false); setBusy(false);
+  },[]);
+
+  return (
+    <div className="app">
+      <div className="header">
+        <h1><i>{'\u25CF'}</i> Research Agent</h1>
+        <div style={{display:'flex',gap:'8px'}}>
+          <button className="hdr-btn accent" onClick={newChat}>{'\u2795'} New Chat</button>
+          <button className="hdr-btn" onClick={function(){ fetchSettings(); setSettingsOpen(true); }}>{'\u2699'} Settings</button>
+        </div>
+      </div>
+      <div className="main">
+        <aside className="sidebar">
+          <div className="panel">
+            <h3>Documents</h3>
+            <Dropzone onDrop={onDrop} onFileSelect={onFileSelect} uploading={uploading} uploadPct={uploadPct} uploadMsg={uploadMsg}/>
+          </div>
+          <div className="panel">
+            <h3>Index Status</h3>
+            <IndexStatus status={status} clearIdx={clearIdx} refresh={refreshStatus}/>
+          </div>
+          <div className="panel">
+            <h3>Research Mode</h3>
+            <ModeSelector mode={mode} setMode={setMode}/>
+          </div>
+          <div className="panel">
+            <h3>Export</h3>
+            <div className="exp-btns">
+              <button className="exp-btn" disabled={!hasResult} onClick={function(){doExport('md')}}>{'\uD83D\uDCC4'} MD</button>
+              <button className="exp-btn" disabled={!hasResult} onClick={function(){doExport('pdf')}}>{'\uD83D\uDCC5'} PDF</button>
+            </div>
+          </div>
+        </aside>
+        <div className="chat">
+          <div className="msgs" ref={msgsRef}>
+            {msgs.length===0 && <Welcome onPick={send}/>}
+            {msgs.map(function(m,i){
+              return m.role==='user'
+                ? <div key={i} className="msg user"><div className="bbl">{m.text}</div></div>
+                : <BotMsg key={i} msg={m} idx={i} onCite={onCite} doExport={doExport}/>;
+            })}
+          </div>
+          <div className="inbar">
+            <InputField onSend={send} busy={busy}/>
+          </div>
+        </div>
+      </div>
+      {settingsOpen && <SettingsModal settings={settings} onClose={function(){setSettingsOpen(false)}} onSave={saveSettings}/>}
+      <ToastUI/>
+    </div>
+  );
+}
+
+function Dropzone(props){
+  var _d=useState(false); var dragOver=_d[0]; var setDragOver=_d[1];
+  var fileRef=useRef();
+  return (
+    <div>
+      <div className={'drop'+(dragOver?' over':'')}
+        onClick={function(){fileRef.current&&fileRef.current.click()}}
+        onDragOver={function(e){e.preventDefault();setDragOver(true)}}
+        onDragLeave={function(){setDragOver(false)}}
+        onDrop={function(e){setDragOver(false);props.onDrop(e)}}>
+        <div className="drop-ico">{'\uD83D\uDCC2'}</div>
+        <div className="drop-txt"><b>Drop files here</b><br/>or click to browse (.pdf, .txt, .md)</div>
+      </div>
+      <input ref={fileRef} type="file" multiple accept=".pdf,.txt,.md" style={{display:'none'}} onChange={function(e){props.onFileSelect(e)}}/>
+      <div className={'upload-bar'+(props.uploading?' on':'')}>
+        <div className="upload-fill" style={{width:props.uploadPct+'%'}}/>
+      </div>
+      {props.uploadMsg && <div className="upload-lbl">{props.uploadMsg}</div>}
+    </div>
+  );
+}
+
+function IndexStatus(props){
+  var s=props.status;
+  return (
+    <div>
+      <div className="stats">
+        <div className="stat"><span className="l">Chunks</span><span className="v" key={'c'+s.total_chunks}>{s.total_chunks}</span></div>
+        <div className="stat"><span className="l">Files</span><span className="v" key={'f'+(s.ingested_files?s.ingested_files.length:0)}>{s.ingested_files?s.ingested_files.length:0}</span></div>
+        <div className="stat"><span className="l">Model</span><span className="v">{(s.llm_model||'--').split('/').pop().substring(0,14)}</span></div>
+      </div>
+      <div style={{display:'flex',gap:'6px',marginTop:'6px'}}>
+        <button className="clr-btn" style={{flex:1}} onClick={props.refresh}>{'\u21BB'} Refresh</button>
+        <button className="clr-btn" style={{flex:1}} onClick={props.clearIdx}>{'\uD83D\uDDD1'} Clear</button>
+      </div>
+    </div>
+  );
+}
+
+function ModeSelector(props){
+  return (
+    <div className="modes">
+      {MODES.map(function(m){
+        return (
+          <div key={m.id} className={'mode'+(props.mode===m.id?' on':'')} onClick={function(){props.setMode(m.id)}}>
+            <div className="mode-dot"/>
+            <div><div className="mode-nm">{m.name}</div><div className="mode-ds">{m.desc}</div></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Welcome(props){
+  var chips=['Tell me about AI ethics','Explain quantum computing','What is RAG?'];
+  return (
+    <div className="welcome">
+      <div className="welcome-ico">{'\uD83D\uDD0E'}</div>
+      <h2>What would you like to research?</h2>
+      <p>Upload documents to build a knowledge base, pick a mode, then ask a question. The agent finds evidence, cites sources, and generates grounded answers.</p>
+      <div className="chips">
+        {chips.map(function(s){ return <button key={s} className="chip" onClick={function(){props.onPick(s)}}>{s}</button>; })}
+      </div>
+    </div>
+  );
+}
+
+function BotMsg(props){
+  var msg=props.msg; var idx=props.idx; var onCite=props.onCite; var doExport=props.doExport;
+
+  if(msg.error){
+    return <div className="msg bot"><div className="err-bbl">{'\u26A0'} {msg.error}</div></div>;
+  }
+
+  if(!msg.done){
+    return (
+      <div className="msg bot"><div className="bbl">
+        <div className="rp">
+          <div className="rp-hdr"><div className="dots"><span/><span/><span/></div><span className="rp-lbl">Researching...</span></div>
+          <div className="steps">{msg.steps.map(function(s,i){
+            return <div key={i} className="step"><span className="step-ico">{PHASE_ICONS[s.phase]||'\u2022'}</span><span className="step-txt">{s.message}</span>{s.duration_ms!=null&&<span className="step-dur">{Math.round(s.duration_ms)}ms</span>}</div>;
+          })}</div>
+        </div>
+      </div></div>
+    );
+  }
+
+  if(!msg.result){
+    return (
+      <div className="msg bot"><div className="bbl">
+        <div className="rp">
+          <div className="steps">{msg.steps.map(function(s,i){
+            return <div key={i} className="step"><span className="step-ico">{PHASE_ICONS[s.phase]||'\u2022'}</span><span className="step-txt">{s.message}</span>{s.duration_ms!=null&&<span className="step-dur">{Math.round(s.duration_ms)}ms</span>}</div>;
+          })}</div>
+        </div>
+        {msg.error && <div className="err-bbl">{msg.error}</div>}
+      </div></div>
+    );
+  }
+
+  var r=msg.result;
+  var met=r.metrics||{};
+  var latency=met.total_latency_ms?((met.total_latency_ms/1000).toFixed(1)+'s'):'--';
+  var html=renderMd(r.answer);
+
+  return (
+    <div className="msg bot"><div className="bbl">
+      <div className="rp-ok">{'\u2714'} Research complete {'\u2014'} {r.chunks_cited} sources cited</div>
+      <div className="answer-content" dangerouslySetInnerHTML={{__html:html}}
+        onClick={function(e){
+          var badge=e.target.closest('.cite');
+          if(badge) onCite(parseInt(badge.dataset.cid),idx);
+        }}/>
+      {msg.evidence && Object.keys(msg.evidence).map(function(cid){
+        var ev=msg.evidence[cid];
+        if(!ev) return null;
+        return (
+          <div key={cid} className="evc">
+            <div className="evc-hdr">
+              <span className="evc-ttl">{'\uD83D\uDD0E'} Evidence for [{cid}]</span>
+              <button className="evc-x" onClick={function(){onCite(parseInt(cid),idx)}}>{'\u00D7'}</button>
+            </div>
+            <div className="evc-body">
+              <div className="evc-txt">{ev.full_text||ev.chunk_preview||'No text available.'}</div>
+              <div className="evc-src"><b>Source:</b> {ev.source} {'\u00A0|\u00A0'} <b>Type:</b> {ev.source_type||'doc'}</div>
+            </div>
+          </div>
+        );
+      })}
+      <div className="metrics">
+        <span className="met"><b>Mode:</b> {met.mode||'--'}</span>
+        <span className="met"><b>Chunks:</b> {r.chunks_cited}/{r.chunks_retrieved}</span>
+        <span className="met"><b>Confidence:</b> {r.confidence}</span>
+        <span className="met"><b>Time:</b> {latency}</span>
+        <span className="met"><b>Tokens:</b> {met.tokens_used||'--'}</span>
+      </div>
+      <div className="dl-bar">
+        <button className="dl-btn md" onClick={function(){doExport('md')}}>{'\uD83D\uDCC4'} Download Markdown</button>
+        <button className="dl-btn pdf" onClick={function(){doExport('pdf')}}>{'\uD83D\uDCC5'} Download PDF</button>
+      </div>
+    </div></div>
+  );
+}
+
+function InputField(props){
+  var _v=useState(''); var val=_v[0]; var setVal=_v[1];
+  var submit=function(){ if(val.trim()&&!props.busy){ props.onSend(val.trim()); setVal(''); }};
+  return (
+    <React.Fragment>
+      <input value={val} onChange={function(e){setVal(e.target.value)}} onKeyDown={function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();submit()}}} placeholder="Ask a research question..." disabled={props.busy}/>
+      <button className="send" onClick={submit} disabled={props.busy||!val.trim()}>{'\u27A4'}</button>
+    </React.Fragment>
+  );
+}
+
+function SettingsModal(props){
+  var _tab=useState('status'); var tab=_tab[0]; var setTab=_tab[1];
+  var _form=useState({}); var form=_form[0]; var setForm=_form[1];
+  var settings=props.settings;
+
+  useEffect(function(){
+    if(settings) setForm({
+      llm_provider:settings.llm_provider, groq_api_key:'', openai_api_key:'',
+      groq_model:settings.groq_model, openai_model:settings.openai_model,
+      top_k:settings.top_k, chunk_size:settings.chunk_size, chunk_overlap:settings.chunk_overlap,
+      similarity_threshold:settings.similarity_threshold,
+      max_generation_tokens:settings.max_generation_tokens, generation_temperature:settings.generation_temperature,
+      tavily_api_key:'', tavily_max_results:settings.tavily_max_results, tavily_search_depth:settings.tavily_search_depth
+    });
+  },[settings]);
+
+  var set=function(k,v){ setForm(function(p){ var n=Object.assign({},p); n[k]=v; return n; }); };
+  var save=function(){
+    var data={};
+    Object.keys(form).forEach(function(k){
+      var v=form[k];
+      if(v!==''&&v!=null){
+        if(typeof v==='string'&&!isNaN(v)&&k!=='llm_provider'&&k!=='groq_model'&&k!=='openai_model'&&k!=='tavily_search_depth') data[k]=Number(v);
+        else data[k]=v;
+      }
+    });
+    props.onSave(data);
+  };
+
+  if(!settings) return null;
+  var tabs=['status','llm','retrieval','search'];
+  var labels={status:'Status',llm:'LLM Config',retrieval:'Retrieval',search:'Web Search'};
+
+  return (
+    <div className="overlay open" onClick={function(e){if(e.target===e.currentTarget)props.onClose()}}>
+      <div className="modal">
+        <h2>{'\u2699'} Settings</h2>
+        <div className="modal-tabs">
+          {tabs.map(function(t){ return <button key={t} className={'modal-tab'+(tab===t?' on':'')} onClick={function(){setTab(t)}}>{labels[t]}</button>; })}
+        </div>
+        {tab==='status' && <div>
+          <div className="sgrid">
+            <div className="sitem"><div className="l">LLM Provider</div><div className="v">{settings.llm_provider}</div></div>
+            <div className="sitem"><div className="l">LLM Model</div><div className="v">{settings.llm_provider==='openai'?settings.openai_model:settings.groq_model}</div></div>
+            <div className="sitem"><div className="l">Embedding</div><div className="v">{settings.embedding_model}</div></div>
+            <div className="sitem"><div className="l">Device</div><div className="v">{settings.embedding_device}</div></div>
+          </div>
+          <div style={{fontSize:'.8rem',color:'var(--txt2)'}}>
+            <b>API Keys:{' '}</b>
+            Groq {settings.groq_api_key_set?'\u2705':'\u274C'},{', '}
+            OpenAI {settings.openai_api_key_set?'\u2705':'\u274C'},{', '}
+            Tavily {settings.tavily_api_key_set?'\u2705':'\u274C'}
+          </div>
+        </div>}
+        {tab==='llm' && <div>
+          <div className="field"><label>Provider</label>
+            <select value={form.llm_provider||''} onChange={function(e){set('llm_provider',e.target.value)}}>
+              <option value="groq">Groq</option><option value="openai">OpenAI</option>
+            </select>
+          </div>
+          <div className="field"><label>Groq API Key {settings.groq_api_key_set&&<span style={{color:'var(--ok)'}}>{'\u2713'} configured</span>}</label>
+            <input type="password" value={form.groq_api_key} onChange={function(e){set('groq_api_key',e.target.value)}} placeholder={settings.groq_api_key||'Enter new key...'}/>
+            <div className="hint">Leave empty to keep current key</div>
+          </div>
+          <div className="field"><label>Groq Model</label><input value={form.groq_model||''} onChange={function(e){set('groq_model',e.target.value)}}/></div>
+          <div className="field"><label>OpenAI API Key {settings.openai_api_key_set&&<span style={{color:'var(--ok)'}}>{'\u2713'} configured</span>}</label>
+            <input type="password" value={form.openai_api_key} onChange={function(e){set('openai_api_key',e.target.value)}} placeholder={settings.openai_api_key||'Enter new key...'}/>
+            <div className="hint">Leave empty to keep current key</div>
+          </div>
+          <div className="field"><label>OpenAI Model</label><input value={form.openai_model||''} onChange={function(e){set('openai_model',e.target.value)}}/></div>
+        </div>}
+        {tab==='retrieval' && <div>
+          <div className="field-row">
+            <div className="field"><label>Top K</label><input type="number" min="1" max="20" value={form.top_k!=null?form.top_k:''} onChange={function(e){set('top_k',e.target.value)}}/></div>
+            <div className="field"><label>Similarity Threshold</label><input type="number" step="0.05" min="0" max="1" value={form.similarity_threshold!=null?form.similarity_threshold:''} onChange={function(e){set('similarity_threshold',e.target.value)}}/></div>
+          </div>
+          <div className="field-row">
+            <div className="field"><label>Chunk Size</label><input type="number" value={form.chunk_size!=null?form.chunk_size:''} onChange={function(e){set('chunk_size',e.target.value)}}/></div>
+            <div className="field"><label>Chunk Overlap</label><input type="number" value={form.chunk_overlap!=null?form.chunk_overlap:''} onChange={function(e){set('chunk_overlap',e.target.value)}}/></div>
+          </div>
+          <div className="field-row">
+            <div className="field"><label>Max Tokens</label><input type="number" value={form.max_generation_tokens!=null?form.max_generation_tokens:''} onChange={function(e){set('max_generation_tokens',e.target.value)}}/></div>
+            <div className="field"><label>Temperature</label><input type="number" step="0.05" min="0" max="2" value={form.generation_temperature!=null?form.generation_temperature:''} onChange={function(e){set('generation_temperature',e.target.value)}}/></div>
+          </div>
+        </div>}
+        {tab==='search' && <div>
+          <div className="field"><label>Tavily API Key {settings.tavily_api_key_set&&<span style={{color:'var(--ok)'}}>{'\u2713'} configured</span>}</label>
+            <input type="password" value={form.tavily_api_key} onChange={function(e){set('tavily_api_key',e.target.value)}} placeholder={settings.tavily_api_key||'Enter new key...'}/>
+            <div className="hint">Leave empty to keep current key</div>
+          </div>
+          <div className="field-row">
+            <div className="field"><label>Max Results</label><input type="number" min="1" max="20" value={form.tavily_max_results!=null?form.tavily_max_results:''} onChange={function(e){set('tavily_max_results',e.target.value)}}/></div>
+            <div className="field"><label>Search Depth</label>
+              <select value={form.tavily_search_depth||'basic'} onChange={function(e){set('tavily_search_depth',e.target.value)}}>
+                <option value="basic">Basic</option><option value="advanced">Advanced</option>
+              </select>
+            </div>
+          </div>
+        </div>}
+        <div className="modal-acts">
+          <button className="mbtn s" onClick={props.onClose}>Cancel</button>
+          <button className="mbtn p" onClick={save}>Save Changes</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>

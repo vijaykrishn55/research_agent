@@ -14,6 +14,7 @@ Built on a Retrieval-Augmented Generation (RAG) pipeline: ingest documents, ask 
 - **Multi-Provider LLM** — Unified interface supporting Groq (default, free tier) and OpenAI.
 - **Token Efficiency** — Retrieves only top-k chunks, uses minimal system prompts, caches embeddings and indexes to disk.
 - **Dual Interface** — Both CLI and REST API (FastAPI).
+- **Web UI** — React-based Claymorphism frontend with real-time research streaming, interactive citations, drag-and-drop upload, editable settings, and one-click export.
 - **Web Search** — Optional Tavily integration with `local`, `web`, `hybrid`, and `auto` retrieval modes.
 
 ## Architecture
@@ -66,6 +67,8 @@ Research-Agent/
 ├── utils/
 │   ├── log.py                 # Structured logging
 │   └── events.py              # Pipeline event collector (research log)
+├── static/
+│   └── index.html             # Claymorphism React frontend (single-page app)
 ├── samples/
 │   ├── documents/             # Sample research documents
 │   ├── questions.json         # Sample research questions
@@ -193,8 +196,12 @@ uvicorn server:app --reload
 | `GET` | `/api/documents` | List ingested files |
 | `DELETE` | `/api/documents` | Clear the index |
 | `POST` | `/api/research` | Ask a research question |
+| `POST` | `/api/research/export` | Export last answer as Markdown or PDF |
 | `GET` | `/api/research/status` | System status |
 | `GET` | `/api/research/evidence/{id}` | Full evidence chunk for citation [id] |
+| `GET` | `/api/settings` | Current configuration (API keys masked) |
+| `PUT` | `/api/settings` | Update configuration + persist to .env |
+| `WS` | `/ws/research` | Real-time research with event streaming |
 
 #### Example API Calls
 
@@ -213,6 +220,26 @@ curl http://localhost:8000/api/research/evidence/3
 ```
 
 Interactive docs available at: `http://localhost:8000/docs`
+
+### Web UI
+
+Start the server and open `http://localhost:8000` in your browser to use the Claymorphism frontend:
+
+```bash
+python server.py
+# Open http://localhost:8000
+```
+
+The web interface provides:
+
+- **Chat-based research** — Ask questions in a conversational interface with markdown-rendered answers
+- **Real-time progress** — WebSocket streams pipeline events as they happen (query planning, search execution, answer generation)
+- **Interactive citations** — Click any `[N]` badge to expand the full evidence chunk inline
+- **Drag-and-drop upload** — Drop PDF/TXT/MD files directly into the sidebar to ingest
+- **Mode selector** — Switch between local, web, hybrid, and auto retrieval modes
+- **One-click export** — Download the last research as Markdown or PDF directly from the UI
+- **Editable settings** — Configure API keys, LLM model, retrieval parameters, and search depth from the settings modal (changes persist to .env)
+- **Auto-updating status** — Index stats (chunks, files, model) refresh automatically via polling
 
 ## Configuration
 
@@ -368,6 +395,8 @@ make sequential decisions by maximizing cumulative rewards [1][3].
 | Index persistence | FAISS binary + JSON metadata | Simple, reliable, no external DB |
 | Provider abstraction | ABC with factory | Easy to add new providers |
 | CLI + API | Both | CLI for local use, API for integration |
+| Frontend | Claymorphism SPA (React via CDN) | Component architecture with hooks; no build step needed |
+| Real-time streaming | WebSocket + event subscriber | Pipeline events streamed live to frontend without polling |
 
 ## Trade-offs and Known Limitations
 
@@ -381,7 +410,7 @@ make sequential decisions by maximizing cumulative rewards [1][3].
 
 5. **Single-user design** — The index is a singleton. Multi-user isolation would require per-user index directories.
 
-6. **No streaming** — LLM responses are returned in full, not streamed. Streaming would improve perceived latency for the API.
+6. **No LLM token streaming** — LLM responses are returned in full, not token-by-token. The pipeline events stream in real-time via WebSocket, but the final answer arrives as a complete response.
 
 7. **Embedding model size** — sentence-transformers requires PyTorch (~2GB). For lighter deployments, consider fastembed (ONNX-based) or API-based embeddings.
 
