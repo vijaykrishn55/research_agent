@@ -38,7 +38,7 @@ EVIDENCE GROUNDING (CRITICAL):
 STYLE:
 - Be concise and information-dense.
 - Write like a research analyst, not a chatbot.
-- End with a brief synthesis of what the evidence collectively shows.
+- Do NOT add a concluding summary or synthesis section — the section headings above are sufficient.
 
 If NO chunk is relevant, state: "The available evidence does not address this question.\""""
 
@@ -147,19 +147,39 @@ class Generator:
     def _build_citations(
         self, cited_ids: set[int], chunks: list[ScoredChunk]
     ) -> list[Citation]:
-        """Map cited IDs back to their source chunks."""
-        citations = []
-        for sc in chunks:
-            if sc.citation_id in cited_ids:
+        """Map cited IDs back to their source chunks.
+
+        Every ID referenced in the answer gets a Citation entry so that
+        no citation is silently dropped from the display.  IDs that don't
+        match any retrieved chunk get a placeholder.
+        """
+        # Build a lookup from citation_id -> ScoredChunk
+        chunk_map: dict[int, ScoredChunk] = {
+            sc.citation_id: sc for sc in chunks
+        }
+
+        citations: list[Citation] = []
+        for cid in sorted(cited_ids):
+            sc = chunk_map.get(cid)
+            if sc is not None:
                 preview = sc.chunk.content[:150]
                 if len(sc.chunk.content) > 150:
                     preview += "..."
                 source_type = "web" if sc.chunk.source.startswith("[WEB]") else "doc"
                 citations.append(Citation(
-                    citation_id=sc.citation_id,
+                    citation_id=cid,
                     source=sc.chunk.source,
                     chunk_preview=preview,
                     source_type=source_type,
+                ))
+            else:
+                # Placeholder for IDs the LLM cited but weren't in our chunks
+                citations.append(Citation(
+                    citation_id=cid,
+                    source="[Source not retrieved]",
+                    chunk_preview="This citation was referenced in the answer but "
+                                  "its source chunk was not found in the retrieved results.",
+                    source_type="unknown",
                 ))
         return citations
 

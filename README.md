@@ -151,6 +151,9 @@ python cli.py ask "What causes climate change?" --top-k 3
 # Ask with JSON output
 python cli.py ask "What is the Transformer architecture?" --json
 
+# Ask without showing the research plan (shown by default in web/hybrid/auto modes)
+python cli.py ask "Latest AI research" --mode web --hide-plan
+
 # View index status
 python cli.py status
 
@@ -290,7 +293,3 @@ make sequential decisions by maximizing cumulative rewards [1][3].
 7. **Embedding model size** — sentence-transformers requires PyTorch (~2GB). For lighter deployments, consider fastembed (ONNX-based) or API-based embeddings.
 
 8. **PDF quality dependency** — Text extraction from scanned/image-based PDFs will fail. Only text-based PDFs are supported.
-
-## Author
-
-Built for the Rooman AI Challenge.

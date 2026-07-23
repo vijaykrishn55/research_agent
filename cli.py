@@ -11,6 +11,7 @@ Commands:
 
 import argparse
 import json
+import re
 import sys
 import textwrap
 
@@ -50,6 +51,21 @@ def cmd_ingest(args):
     print(f"\n  Total chunks indexed: {total}")
 
 
+def _extract_citation_ids(text: str) -> set[int]:
+    """Parse all [N] and [N, M, ...] citation tags from the answer text."""
+    return {int(m) for m in re.findall(r"\[(\d+)\]", text)}
+
+
+def _strip_synthesis(text: str) -> str:
+    """Remove the trailing ## Synthesis section from the LLM answer."""
+    return re.sub(
+        r"\n*##\s*Synthesis\s*\n.*",
+        "",
+        text,
+        flags=re.DOTALL,
+    ).rstrip()
+
+
 def cmd_ask(args):
     """Ask a research question."""
     from services.pipeline import Pipeline
@@ -68,42 +84,78 @@ def cmd_ask(args):
 
     answer = pipeline.ask(args.question, top_k=args.top_k, mode=mode)
 
-    # Display research plan if present
-    plan = answer.metrics.get("research_plan")
-    if plan:
-        print("── Research Plan ──")
-        for i, step in enumerate(plan, 1):
-            print(f"  {i}. {step['query']}")
-            print(f"     → {step['purpose']}")
-        print()
+    # Display research plan if present (hidden with --hide-plan)
+    if not args.hide_plan:
+        plan = answer.metrics.get("research_plan")
+        if plan:
+            print("── Research Plan ──")
+            for i, step in enumerate(plan, 1):
+                print(f"  {i}. {step['query']}")
+                print(f"     → {step['purpose']}")
+            print()
+
+    # Strip the Synthesis section from the answer — it repeats the Overview
+    display_answer = _strip_synthesis(answer.answer)
 
     # Print the answer
     print("── Answer ──")
-    print(answer.answer)
+    print(display_answer)
 
-    # Print citations — grouped by source type for clarity
-    if answer.citations:
-        doc_citations = [c for c in answer.citations if c.source_type == "doc"]
-        web_citations = [c for c in answer.citations if c.source_type == "web"]
+    # Build a complete citation list from ALL [N] IDs in the answer text.
+    # This ensures no citation ID referenced in the answer is missing from
+    # the display, even if the generator's citation list is incomplete.
+    cited_ids = _extract_citation_ids(display_answer)
 
-        if doc_citations:
-            print(f"\n── Document Citations ({len(doc_citations)}) ──")
-            for c in doc_citations:
-                print(f"  [{c.citation_id}] {c.source}")
-                print(f"      \"{c.chunk_preview}\"")
+    # Build lookup from citation objects returned by the generator
+    citation_map = {c.citation_id: c for c in answer.citations}
 
-        if web_citations:
-            print(f"\n── Web Citations ({len(web_citations)}) ──")
-            for c in web_citations:
-                print(f"  [{c.citation_id}] {c.source}")
-                print(f"      \"{c.chunk_preview}\"")
+    # Fill gaps for any IDs the generator missed
+    from services.generator import Citation
+    for cid in sorted(cited_ids):
+        if cid not in citation_map:
+            citation_map[cid] = Citation(
+                citation_id=cid,
+                source="[Source not retrieved]",
+                chunk_preview="This citation was referenced in the answer but "
+                              "its source chunk was not found in the retrieved results.",
+                source_type="unknown",
+            )
 
-    # Print metrics
+    # Group citations by source type for display
+    all_citations = sorted(
+        [citation_map[cid] for cid in cited_ids],
+        key=lambda c: c.citation_id,
+    )
+
+    doc_citations = [c for c in all_citations if c.source_type == "doc"]
+    web_citations = [c for c in all_citations if c.source_type == "web"]
+    other_citations = [c for c in all_citations if c.source_type not in ("doc", "web")]
+
+    if doc_citations:
+        print(f"\n── Document Citations ({len(doc_citations)}) ──")
+        for c in doc_citations:
+            print(f"  [{c.citation_id}] {c.source}")
+            print(f"      \"{c.chunk_preview}\"")
+
+    if web_citations:
+        print(f"\n── Web Citations ({len(web_citations)}) ──")
+        for c in web_citations:
+            print(f"  [{c.citation_id}] {c.source}")
+            print(f"      \"{c.chunk_preview}\"")
+
+    if other_citations:
+        print(f"\n── Other Citations ({len(other_citations)}) ──")
+        for c in other_citations:
+            print(f"  [{c.citation_id}] {c.source}")
+            print(f"      \"{c.chunk_preview}\"")
+
+    # Print metrics — use the actual unique citation count from the answer
+    unique_cited = len(cited_ids)
     print(f"\n── Metrics ──")
     print(f"  Mode:            {answer.metrics.get('mode', mode)}")
     print(f"  Confidence:      {answer.confidence}")
     print(f"  Chunks retrieved: {answer.chunks_retrieved}")
-    print(f"  Chunks cited:    {answer.chunks_cited}")
+    print(f"  Chunks cited:    {unique_cited}")
     if answer.metrics:
         print(f"  Tokens used:     {answer.metrics.get('tokens_used', 'N/A')}")
         print(f"  Latency:         {answer.metrics.get('total_latency_ms', 'N/A')}ms")
@@ -115,7 +167,7 @@ def cmd_ask(args):
         print(f"\n-- JSON Output --")
         output = {
             "question": answer.question,
-            "answer": answer.answer,
+            "answer": display_answer,
             "citations": [
                 {
                     "id": c.citation_id,
@@ -123,11 +175,11 @@ def cmd_ask(args):
                     "source_type": c.source_type,
                     "preview": c.chunk_preview,
                 }
-                for c in answer.citations
+                for c in all_citations
             ],
             "confidence": answer.confidence,
             "chunks_retrieved": answer.chunks_retrieved,
-            "chunks_cited": answer.chunks_cited,
+            "chunks_cited": unique_cited,
             "metrics": answer.metrics,
         }
         print(json.dumps(output, indent=2))
@@ -188,6 +240,10 @@ def main():
         help="Retrieval mode (default: local)",
     )
     ask_parser.add_argument("--json", action="store_true", help="Also output raw JSON")
+    ask_parser.add_argument(
+        "--hide-plan", action="store_true",
+        help="Hide the research plan from the output (shown by default)",
+    )
     ask_parser.set_defaults(func=cmd_ask)
 
     # status
